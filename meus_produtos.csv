@@ -1,0 +1,4 @@
+sku,produto,imagem_url,custo_base,moeda_base
+JBL-01,Caixa JBL Boombox 3,https://m.media-amazon.com/images/I/61s+N9j+bCL._AC_SL1000_.jpg,1200.0,BRL
+PIO-12,Subwoofer Pioneer 12 pol,https://m.media-amazon.com/images/I/61bM8f5iVvL._AC_SL1000_.jpg,85.0,USD
+INT-CAM,Câmera Intelbras iM3,https://m.media-amazon.com/images/I/61O0N9y+YLL._AC_SL1500_.jpg,250.0,BRL

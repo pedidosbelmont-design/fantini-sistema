@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import time
+import base64
 
 # --- 1. CONFIGURAÇÃO VISUAL ---
 st.set_page_config(
@@ -13,11 +14,24 @@ st.set_page_config(
 
 PASTA_IMAGENS = "static"
 ARQUIVO_DB = "banco_produtos_dinamico.csv"
-# Adicionamos "fabricante" nas colunas fixas
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
-
-# Lista das suas representadas (Fácil de alterar no futuro)
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
+
+# --- MAPA DE LOGOS DAS FÁBRICAS ---
+# Aqui associamos o Nome da Fábrica ao arquivo na pasta static
+LOGOS_FABRICANTES = {
+    "Vinagre Belmont": "belmont.png",
+    "Serve Sempre": "serve.png"
+}
+
+# --- FUNÇÃO AUXILIAR PARA IMAGEM NO HTML ---
+def get_img_as_base64(file_path):
+    """Transforma a imagem em código para poder usar dentro do HTML/CSS"""
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    return None
 
 # --- CSS BLINDADO ---
 st.markdown("""
@@ -50,20 +64,26 @@ st.markdown("""
     .produto-card:hover { transform: translateY(-3px); border-color: #2980b9; }
     
     .nome-produto {
-        font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700;
-        color: #34495e !important; height: 40px; overflow: hidden;
+        font-family: 'Segoe UI', sans-serif; font-size: 13px; font-weight: 700;
+        color: #34495e !important; height: 38px; overflow: hidden;
         margin-top: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     }
-    .preco-destaque { font-size: 22px; font-weight: 800; color: #27ae60 !important; margin: 5px 0; }
+    .preco-destaque { font-size: 20px; font-weight: 800; color: #27ae60 !important; margin: 5px 0; }
     
     /* Tags */
     .tag-tabela {
         background-color: #ecf0f1; color: #7f8c8d !important; font-size: 10px;
-        padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase;
+        padding: 4px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase;
     }
-    .tag-fabrica {
-        background-color: #e8f6f3; color: #16a085 !important; font-size: 10px;
-        padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-bottom: 5px; display:inline-block;
+    .tag-codigo {
+        font-size: 10px; color: #bdc3c7 !important; margin-bottom: 2px; display: block;
+    }
+    
+    /* Logo da Fábrica no Card */
+    .logo-fabrica-card {
+        max-height: 25px; /* Altura fixa pequena */
+        max-width: 80px;
+        object-fit: contain;
     }
     
     [data-testid="stSidebar"] img { display: block; margin-left: auto; margin-right: auto; margin-bottom: 20px; }
@@ -82,7 +102,6 @@ def inicializar():
 
 def carregar_dados(): 
     df = pd.read_csv(ARQUIVO_DB)
-    # Migração automática: se o arquivo velho não tiver fabricante, cria a coluna
     if "fabricante" not in df.columns:
         df["fabricante"] = "Geral"
         salvar_dados(df)
@@ -108,13 +127,11 @@ def excluir_categoria(nome):
 
 def salvar_produto(codigo, barras, nome, fabricante, imagem_file, precos_dict, modo_edicao=False):
     df = carregar_dados()
-    
     if not codigo:
         if modo_edicao: return False, "Erro de referência."
         else: codigo = f"AUTO-{int(time.time())}"
     
-    if not modo_edicao:
-        if codigo in df["codigo"].values: return False, "⚠️ Código já existe!"
+    if not modo_edicao and codigo in df["codigo"].values: return False, "⚠️ Código já existe!"
 
     nome_imagem = "sem_foto.png"
     if modo_edicao:
@@ -128,14 +145,7 @@ def salvar_produto(codigo, barras, nome, fabricante, imagem_file, precos_dict, m
         with open(os.path.join(PASTA_IMAGENS, nome_imagem), "wb") as f:
             f.write(imagem_file.getbuffer())
 
-    # Incluímos o fabricante no objeto
-    novo_item = {
-        "codigo": codigo, 
-        "barras": barras, 
-        "nome": nome, 
-        "fabricante": fabricante,
-        "imagem": nome_imagem
-    }
+    novo_item = {"codigo": codigo, "barras": barras, "nome": nome, "fabricante": fabricante, "imagem": nome_imagem}
     novo_item.update(precos_dict)
     
     df = pd.concat([df, pd.DataFrame([novo_item])], ignore_index=True)
@@ -154,7 +164,18 @@ def mostrar_detalhes(row, img_path, colunas_precos):
     with c1:
         if os.path.exists(img_path): st.image(img_path, use_container_width=True)
         else: st.text("Sem foto")
-        st.caption(f"Fab: {row['fabricante']}")
+        
+        # Mostra logo da fabrica no detalhe também
+        arq_logo = LOGOS_FABRICANTES.get(row['fabricante'])
+        if arq_logo:
+            caminho_logo = os.path.join(PASTA_IMAGENS, arq_logo)
+            if os.path.exists(caminho_logo):
+                st.image(caminho_logo, width=100)
+            else:
+                st.caption(f"Fab: {row['fabricante']}")
+        else:
+            st.caption(f"Fab: {row['fabricante']}")
+
         if row['barras'] and str(row['barras']) != "nan":
             st.markdown(f"**EAN:** `{row['barras']}`")
 
@@ -176,26 +197,25 @@ if "edit_codigo" not in st.session_state:
 df = carregar_dados()
 colunas_de_preco = [c for c in df.columns if c not in COLUNAS_FIXAS]
 
-# SIDEBAR (FILTROS)
+# SIDEBAR
 with st.sidebar:
-    logo_png = os.path.join(PASTA_IMAGENS, "logo.png")
-    if os.path.exists(logo_png): st.image(logo_png)
+    # Busca Logo da Fantini
+    caminhos_possiveis = [os.path.join(PASTA_IMAGENS, x) for x in ["logo.png", "logo.jpg", "Logo.png"]]
+    logo_encontrado = next((c for c in caminhos_possiveis if os.path.exists(c)), None)
+    
+    if logo_encontrado: st.image(logo_encontrado, use_container_width=True)
     else: st.header("FANTINI")
     
     st.divider()
-    
-    # --- FILTRO DE FABRICANTE (NOVO) ---
     st.header("🏭 Fabricante")
     filtro_fabrica = st.radio("Filtrar Vitrine:", ["Todos"] + EMPRESAS)
-    
     st.divider()
     
     tabela_ativa = None
     if colunas_de_preco:
         st.header("💲 Tabela de Preço")
         tabela_ativa = st.radio("Visualizar:", colunas_de_preco)
-    else:
-        st.warning("Crie tabelas na aba Configurações.")
+    else: st.warning("Crie tabelas na aba Configurações.")
 
 # TABS
 st.title("Fantini Dynamic OS")
@@ -203,16 +223,15 @@ tab_vitrine, tab_novo, tab_config = st.tabs(["💎 Vitrine", "📝 Gerenciar Pro
 
 # ABA VITRINE
 with tab_vitrine:
-    # APLICA FILTRO
     df_vitrine = df.copy()
     if filtro_fabrica != "Todos":
         df_vitrine = df_vitrine[df_vitrine["fabricante"] == filtro_fabrica]
 
     if df_vitrine.empty:
-        if df.empty: st.info("Nenhum produto cadastrado.")
-        else: st.warning(f"Nenhum produto encontrado da marca {filtro_fabrica}.")
+        if df.empty: st.info("Cadastre produtos.")
+        else: st.warning(f"Sem produtos de {filtro_fabrica}.")
     elif not colunas_de_preco:
-        st.info("Cadastre tabelas para ver os preços.")
+        st.info("Cadastre tabelas.")
     else:
         st.markdown(f"Mostrando **{filtro_fabrica}** na tabela **{tabela_ativa}**")
         colunas = st.columns(6) 
@@ -222,16 +241,32 @@ with tab_vitrine:
                 img_path = os.path.join(PASTA_IMAGENS, str(row["imagem"]))
                 preco_show = row[tabela_ativa] if tabela_ativa else 0.0
                 
+                # --- LÓGICA PARA RENDERIZAR LOGO PEQUENA ---
+                nome_arq_logo = LOGOS_FABRICANTES.get(row['fabricante'])
+                html_logo = f"<span class='tag-tabela'>{row['fabricante'][:10]}</span>" # Fallback texto
+                
+                if nome_arq_logo:
+                    path_full_logo = os.path.join(PASTA_IMAGENS, nome_arq_logo)
+                    b64_logo = get_img_as_base64(path_full_logo)
+                    if b64_logo:
+                        # Se achou a imagem, cria a tag HTML img
+                        html_logo = f"<img src='data:image/png;base64,{b64_logo}' class='logo-fabrica-card'>"
+                
+                # Código (esconde se for auto)
+                display_cod = f"#{row['codigo']}" if not str(row['codigo']).startswith("AUTO-") else ""
+
                 with st.container(border=True):
-                    # Tags Fabricante e Tabela
+                    # Cabeçalho do Card: Logo Fabrica (esq) | Tabela (dir)
                     st.markdown(f"""
-                        <div style='display:flex; justify-content:space-between; align-items:center;'>
-                             <span class='tag-fabrica'>{row['fabricante'][:8]}..</span>
+                        <div style='display:flex; justify-content:space-between; align-items:center; height:30px;'>
+                             {html_logo}
                              <span class='tag-tabela'>{tabela_ativa}</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    st.write("")
+                    if display_cod:
+                        st.markdown(f"<span class='tag-codigo'>{display_cod}</span>", unsafe_allow_html=True)
+                    
                     if os.path.exists(img_path): st.image(img_path, width=100) 
                     else: st.text("S/ Imagem")
 
@@ -243,24 +278,31 @@ with tab_vitrine:
                     if st.button("Ver Detalhes", key=f"btn_{row['codigo']}"):
                         mostrar_detalhes(row, img_path, colunas_de_preco)
 
-# ABA GERENCIAR
+
+
+# ABA CONFIG
+# ABA CONFIG (CORRIGIDA)
+with tab_config:
+    st.header("Gerenciar Tabelas")
+    c1, c2 = st.columns(2)
+    # ABA GERENCIAR (CORRIGIDA)
 with tab_novo:
     col_cad, col_search = st.columns([1.5, 1])
     
+    # --- COLUNA DE BUSCA ---
     with col_search:
         st.subheader("🔎 Buscar")
         df_view = carregar_dados()
         if not df_view.empty:
             df_view['codigo'] = df_view['codigo'].astype(str)
-            # Mostra o fabricante na lista de busca pra facilitar
             lista_produtos = df_view["codigo"] + " | " + df_view["nome"]
             escolha = st.selectbox("Editar:", ["Selecione..."] + list(lista_produtos))
-            
             if st.button("Carregar Edição", type="primary"):
                 if escolha != "Selecione...":
                     st.session_state["edit_codigo"] = escolha.split(" | ")[0]
                     st.rerun()
     
+    # --- COLUNA DE CADASTRO ---
     with col_cad:
         codigo_em_edicao = st.session_state["edit_codigo"]
         dados_edicao = None
@@ -268,77 +310,111 @@ with tab_novo:
         if codigo_em_edicao:
             df['codigo'] = df['codigo'].astype(str)
             filtro = df[df["codigo"] == str(codigo_em_edicao)]
-            if not filtro.empty: dados_edicao = filtro.iloc[0]
+            if not filtro.empty: 
+                dados_edicao = filtro.iloc[0]
         
+        # Cabeçalho dinâmico
         if dados_edicao is not None:
             st.subheader(f"✏️ Editando: {dados_edicao['nome']}")
-            if st.button("❌ Cancelar"):
-                st.session_state["edit_codigo"] = None; st.rerun()
-        else:
+            if st.button("❌ Cancelar"): 
+                st.session_state["edit_codigo"] = None
+                st.rerun()
+        else: 
             st.subheader("➕ Novo Produto")
 
         with st.container(border=True):
+            # Carregar valores (com proteção None)
             cod_val = dados_edicao["codigo"] if dados_edicao is not None else ""
             barras_val = dados_edicao["barras"] if dados_edicao is not None else ""
             nome_val = dados_edicao["nome"] if dados_edicao is not None else ""
-            # Pega o fabricante atual ou o primeiro da lista
+            
+            # Index do Fabricante
             fab_index = 0
             if dados_edicao is not None and dados_edicao["fabricante"] in EMPRESAS:
                 fab_index = EMPRESAS.index(dados_edicao["fabricante"])
 
-            if str(cod_val).startswith("AUTO-"): cod_val = ""
+            # Limpa visualmente se for código automático
+            if str(cod_val).startswith("AUTO-"): 
+                cod_val = ""
 
-            # CAMPO FABRICANTE NOVO
+            # --- CAMPOS DO FORMULÁRIO ---
             fabricante = st.selectbox("Fabricante *", EMPRESAS, index=fab_index)
             
             c_cod, c_barras = st.columns(2)
-            codigo = c_cod.text_input("Código Interno", value=cod_val, disabled=(dados_edicao is not None))
-            barras = c_barras.text_input("Cód. Barras", value=barras_val)
+            codigo = c_cod.text_input("Código Interno (Opcional)", value=cod_val, disabled=(dados_edicao is not None))
+            barras = c_barras.text_input("Cód. Barras (Opcional)", value=barras_val)
             
             nome = st.text_input("Nome do Produto *", value=nome_val)
             f_img = st.file_uploader("Imagem", type=['jpg','png'])
             
-            if dados_edicao is not None and not f_img: st.caption(f"Imagem atual: {dados_edicao['imagem']}")
+            if dados_edicao is not None and not f_img: 
+                st.caption(f"Imagem atual: {dados_edicao['imagem']}")
             
             st.divider()
+            
+            # --- TABELAS DE PREÇO ---
             if colunas_de_preco:
                 st.write("💰 **Preços:**")
                 precos_input = {}
                 for col in colunas_de_preco:
+                    # Pega valor se existir, senão 0.0
                     val = float(dados_edicao[col]) if dados_edicao is not None else 0.0
                     precos_input[col] = st.number_input(f"{col} (R$)", value=val)
                 
                 c_btn1, c_btn2 = st.columns(2)
-                label_save = "Atualizar" if dados_edicao is not None else "Cadastrar"
                 
-                if c_btn1.button(f"💾 {label_save}", type="primary"):
+                # --- AQUI ESTAVA O ERRO (CORRIGIDO) ---
+                # Usamos 'is not None' para evitar ambiguidade do Pandas
+                label_botao = "Atualizar" if dados_edicao is not None else "Cadastrar"
+                
+                if c_btn1.button(f"💾 {label_botao}", type="primary"):
                     cod_final = codigo
-                    if dados_edicao is not None and not codigo: cod_final = dados_edicao["codigo"]
+                    # Se for edição e o campo código estiver vazio (era AUTO-), recupera o original
+                    if dados_edicao is not None and not codigo: 
+                        cod_final = dados_edicao["codigo"]
 
                     if nome and fabricante:
                         ok, msg = salvar_produto(cod_final, barras, nome, fabricante, f_img, precos_input, modo_edicao=(dados_edicao is not None))
-                        if ok: st.success(msg); st.session_state["edit_codigo"] = None; st.rerun()
-                        else: st.error(msg)
-                    else: st.warning("Nome e Fabricante são obrigatórios.")
+                        if ok: 
+                            st.success(msg)
+                            st.session_state["edit_codigo"] = None
+                            st.rerun()
+                        else: 
+                            st.error(msg)
+                    else: 
+                        st.warning("Nome e Fabricante obrigatórios.")
                 
+                # Botão Excluir (Só aparece se estiver editando)
                 if dados_edicao is not None:
                     if c_btn2.button("🗑️ Excluir"):
-                        excluir_produto(dados_edicao["codigo"]); st.session_state["edit_codigo"] = None; st.success("Excluído!"); st.rerun()
-            else: st.warning("⚠️ Crie primeiro as tabelas na aba Configurações.")
-
-# ABA CONFIG
-with tab_config:
-    st.header("Gerenciar Tabelas")
-    c1, c2 = st.columns(2)
+                        excluir_produto(dados_edicao["codigo"])
+                        st.session_state["edit_codigo"] = None
+                        st.success("Excluído!")
+                        st.rerun()
+            else: 
+                st.warning("Crie tabelas primeiro.")
+    # --- COLUNA 1: CRIAR ---
     with c1:
         new_cat = st.text_input("Nova Tabela")
         if st.button("Criar"):
             if new_cat:
-                ok, m = criar_categoria(new_cat); 
-                if ok: st.success(m); st.rerun()
+                ok, m = criar_categoria(new_cat)
+                if ok: 
+                    st.success(m)
+                    time.sleep(0.5) # Pausa rápida para ver a mensagem
+                    st.rerun()
+            else:
+                st.warning("Digite um nome para a tabela.")
+
+    # --- COLUNA 2: APAGAR ---
     with c2:
         if colunas_de_preco:
             del_cat = st.selectbox("Apagar Tabela:", colunas_de_preco)
             if st.button("Apagar"):
-                ok, m = excluir_categoria(del_cat); 
-                if ok: st.warning(m); st.rerun()
+                ok, m = excluir_categoria(del_cat)
+                if ok: 
+                    st.warning(m)
+                    time.sleep(0.5)
+                    st.rerun()
+        else:
+            st.info("Nenhuma tabela para apagar.")
