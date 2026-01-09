@@ -402,15 +402,32 @@ with tab_cadastro:
 # ABA 3: AJUSTES
 with tab_config:
     c1, c2 = st.columns(2)
+    
+    # --- COLUNA CRIAR ---
     with c1:
         st.markdown("##### Criar Tabela")
-        new = st.text_input("Nome")
-        if st.button("Criar", use_container_width=True):
-             if new: ok, m = criar_categoria(new); 
-             if ok: st.success(m); time.sleep(0.5); st.rerun()
+        new = st.text_input("Nome (Ex: Atacado)")
+        if st.button("Criar Tabela", use_container_width=True):
+             if new:
+                 ok, m = criar_categoria(new)
+                 if ok: 
+                     st.success(m)
+                     time.sleep(0.5)
+                     st.rerun()
+             else:
+                 st.warning("Digite um nome.")
+
+    # --- COLUNA APAGAR (ONDE DEU O ERRO) ---
     with c2:
         st.markdown("##### Apagar Tabela")
         if colunas_de_preco:
-            dele = st.selectbox("Selecione:", colunas_de_preco)
-            if st.button("Apagar", use_container_width=True): ok, m = excluir_categoria(dele); 
-            if ok: st.warning(m); time.sleep(0.5); st.rerun()
+            dele = st.selectbox("Selecione para apagar:", colunas_de_preco)
+            if st.button("Apagar Tabela", use_container_width=True):
+                ok, m = excluir_categoria(dele)
+                # A CORREÇÃO ESTÁ AQUI: O 'if ok' agora fica DENTRO do botão
+                if ok: 
+                    st.warning(m)
+                    time.sleep(0.5)
+                    st.rerun()
+        else:
+            st.info("Nenhuma tabela criada.")
