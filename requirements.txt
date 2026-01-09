@@ -1,4 +1,4 @@
 streamlit
 pandas
 Pillow
-xhtml2pdf
+fpdf2
