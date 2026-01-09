@@ -1,2 +1,7 @@
 streamlit
 pandas
+Pillow
+xhtml2pdf
+reportlab
+html5lib
+six
