@@ -199,7 +199,9 @@ with st.sidebar:
 # --- ABAS ---
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Gerador PDF", "📝 Cadastro Produtos", "⚙️ Ajustes"])
 
-# ABA 1: GERADOR (AGORA SEM FOTOS NA TABELA)
+# ==============================================================================
+# ABA 1: GERADOR DE PDF (CORRIGIDO)
+# ==============================================================================
 with tab_gerador:
     df_filtrado = df.copy()
     if filtro_fabrica != "Todos":
@@ -235,67 +237,65 @@ with tab_gerador:
         itens_marcados = df_edicao[df_edicao["Incluir"] == True]
         
         if not itens_marcados.empty:
-            # 1. Logo Fantini do Cabeçalho (Mantida)
+            # 1. Logo Fantini
             img_logo_b64 = ""
             if path_logo_fantini:
                 res = get_img_as_base64_resized(path_logo_fantini)
                 if res: img_logo_b64 = res
 
-            # 2. Linhas da Tabela (SEM FOTOS AGORA)
+            # 2. Linhas da Tabela
             html_rows = ""
             for idx, row in itens_marcados.iterrows():
                 cod_show = row['codigo'] if not str(row['codigo']).startswith("AUTO-") else "---"
                 ean_show = f"EAN: {row['barras']}" if row['barras'] and str(row['barras']) != "nan" else ""
                 preco = row[tabela_selecionada]
 
-                html_rows += f"""
-                <tr>
-                    <td class='prod-cod' style='padding-left:15px;'>{cod_show}</td>
-                    <td>
-                        <div class='prod-nome'>{row['nome']}</div>
-                        <div class='prod-ean'>{ean_show}</div>
-                    </td>
-                    <td style='text-align:right; padding-right:15px;' class='prod-preco'>R$ {preco:,.2f}</td>
-                </tr>
-                """
+                # Monta a linha sem espaços na frente para evitar bug do Markdown
+                html_rows += f"""<tr>
+<td class='prod-cod' style='padding-left:15px;'>{cod_show}</td>
+<td><div class='prod-nome'>{row['nome']}</div><div class='prod-ean'>{ean_show}</div></td>
+<td style='text-align:right; padding-right:15px;' class='prod-preco'>R$ {preco:,.2f}</td>
+</tr>"""
 
             data_hoje = datetime.now().strftime("%d/%m/%Y")
             titulo_extra = f" - {filtro_fabrica}" if filtro_fabrica != "Todos" else ""
             logo_html = f'<img src="{img_logo_b64}" style="max-height:70px;">' if img_logo_b64 else '<h2>FANTINI</h2>'
-
+            
+            # 3. HTML FINAL (SEM INDENTAÇÃO / ESPAÇOS NA ESQUERDA)
+            # Isso é crucial para o Streamlit renderizar o HTML corretamente
             html_final = f"""
-            <div class="folha-a4-preview">
-                <div class="header-tabela">
-                    <div>
-                        {logo_html}
-                        <div style="color:#666; font-size:12px; margin-top:5px;">Representação Comercial</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div class="titulo-tabela">Tabela de Preços{titulo_extra}</div>
-                        <div class="subtitulo-tabela">Condição: <strong>{tabela_selecionada}</strong></div>
-                        <div class="subtitulo-tabela">Data: {data_hoje}</div>
-                        {f'<div style="margin-top:5px; font-weight:bold; color:#2c3e50;">Cliente: {cliente_nome}</div>' if cliente_nome else ''}
-                    </div>
-                </div>
-                
-                <table class="tabela-produtos">
-                    <thead>
-                        <tr>
-                            <th width="100px" style="padding-left:15px;">Código</th>
-                            <th>Produto / EAN</th>
-                            <th width="140px" style="text-align:right; padding-right:15px;">Valor Unit.</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {html_rows}
-                    </tbody>
-                </table>
-                
-                <div style="margin-top:40px; border-top:1px solid #ccc; padding-top:10px; font-size:11px; color:#666; text-align:center;">
-                    {observacao if observacao else 'Documento gerado pelo Sistema Fantini. Sujeito a alteração.'}
-                </div>
-            </div>
-            """
+<div class="folha-a4-preview">
+    <div class="header-tabela">
+        <div>
+            {logo_html}
+            <div style="color:#666; font-size:12px; margin-top:5px;">Representação Comercial</div>
+        </div>
+        <div style="text-align:right;">
+            <div class="titulo-tabela">Tabela de Preços{titulo_extra}</div>
+            <div class="subtitulo-tabela">Condição: <strong>{tabela_selecionada}</strong></div>
+            <div class="subtitulo-tabela">Data: {data_hoje}</div>
+            {f'<div style="margin-top:5px; font-weight:bold; color:#2c3e50;">Cliente: {cliente_nome}</div>' if cliente_nome else ''}
+        </div>
+    </div>
+    
+    <table class="tabela-produtos">
+        <thead>
+            <tr>
+                <th width="100px" style="padding-left:15px;">Código</th>
+                <th>Produto / EAN</th>
+                <th width="140px" style="text-align:right; padding-right:15px;">Valor Unit.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {html_rows}
+        </tbody>
+    </table>
+    
+    <div style="margin-top:40px; border-top:1px solid #ccc; padding-top:10px; font-size:11px; color:#666; text-align:center;">
+        {observacao if observacao else 'Documento gerado pelo Sistema Fantini. Sujeito a alteração.'}
+    </div>
+</div>
+"""
             st.markdown(html_final, unsafe_allow_html=True)
             st.markdown("""
                 <div class='no-print' style='margin-top:20px; background-color:#e8f5e9; color:#1b5e20; padding:15px; border-radius:8px; text-align:center;'>
