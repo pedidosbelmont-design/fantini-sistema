@@ -6,107 +6,123 @@ import io
 from datetime import datetime
 from PIL import Image
 from fpdf import FPDF
+from fpdf.fonts import FontFace
 
 # --- 1. CONFIGURAÇÃO GERAL ---
-st.set_page_config(
-    layout="wide", 
-    page_title="Sistema Fantini", 
-    page_icon="📄",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(layout="wide", page_title="Sistema Fantini", page_icon="📄")
 
 PASTA_IMAGENS = "static"
 ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- CSS VISUAL ---
+# --- CSS VISUAL (TELA) ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
-    .preview-box {
+    .preview-card {
         background: white; padding: 15px; border-radius: 8px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 10px;
+        display: flex; align-items: center; border-left: 5px solid #2c3e50;
     }
+    .preview-img { width: 50px; height: 50px; object-fit: contain; margin-right: 15px; border: 1px solid #eee; }
+    .preview-info { flex-grow: 1; }
+    .preview-price { font-weight: bold; color: #27ae60; font-size: 16px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CLASSE GERADORA DE PDF (FPDF2) ---
+# --- 2. CLASSE PDF PROFISSIONAL ---
 class PDF(FPDF):
     def header(self):
-        # Tenta colocar a logo
+        # Logo
         logo_path = None
         for ext in ["png", "jpg"]:
             if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
         
         if logo_path:
-            self.image(logo_path, 10, 8, 33)
+            self.image(logo_path, 10, 8, 30) # Logo pequena à esquerda
         
-        self.set_font('helvetica', 'B', 15)
-        self.cell(80)
-        self.cell(30, 10, 'FANTINI REPRESENTAÇÕES', 0, 0, 'C')
-        self.ln(20)
+        # Título da Empresa
+        self.set_font('helvetica', 'B', 14)
+        self.cell(40) # Pula a logo
+        self.cell(0, 10, 'FANTINI REPRESENTAÇÕES', ln=False, align='L')
+        self.ln(15)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('helvetica', 'I', 8)
-        self.cell(0, 10, f'Pagina {self.page_no()}/{{nb}}', 0, 0, 'C')
+        self.cell(0, 10, f'Pagina {self.page_no()}/{{nb}}', align='C')
 
-def gerar_pdf_fpdf(df_itens, cliente, obs, tabela_col, df_completo):
-    pdf = PDF()
+def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
+    pdf = PDF(orientation='P', unit='mm', format='A4')
     pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_font("helvetica", size=12)
     
-    # Cabeçalho Pedido
-    pdf.set_font("helvetica", 'B', 12)
-    pdf.cell(0, 10, f"TABELA DE PREÇOS: {tabela_col}", ln=True)
-    pdf.set_font("helvetica", size=10)
-    pdf.cell(0, 5, f"Cliente: {cliente}", ln=True)
-    pdf.cell(0, 5, f"Data: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(5)
+    # --- CABEÇALHO DO DOCUMENTO ---
+    pdf.set_fill_color(240, 240, 240) # Fundo cinza claro
+    pdf.rect(10, 25, 190, 25, 'F') # Caixa de fundo
     
-    # Tabela
-    with pdf.table() as table:
+    pdf.set_y(28)
+    pdf.set_font("helvetica", 'B', 10)
+    pdf.cell(10)
+    pdf.cell(0, 5, f"TABELA: {tabela_col.upper()}", ln=True)
+    
+    pdf.set_font("helvetica", '', 10)
+    pdf.cell(10)
+    pdf.cell(0, 5, f"CLIENTE: {cliente}", ln=True)
+    
+    pdf.cell(10)
+    pdf.cell(0, 5, f"DATA: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+    pdf.ln(10)
+    
+    # --- CONFIGURAÇÃO DA TABELA ---
+    # Colunas: Foto(12%), Cód(18%), Produto(50%), Preço(20%)
+    # Isso impede que a tabela fique torta
+    col_widths = (12, 23, 105, 50) 
+    
+    # Cabeçalho da Tabela
+    with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"),line_height=6) as table:
         row = table.row()
-        row.cell("FOTO")
-        row.cell("CÓDIGO")
-        row.cell("PRODUTO")
-        row.cell("PREÇO")
+        row.cell("FOTO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
+        row.cell("CÓDIGO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
+        row.cell("DESCRIÇÃO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
+        row.cell("PREÇO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
+        
+        # Itens
+        pdf.set_font("helvetica", size=9)
         
         for idx, item in df_itens.iterrows():
             row = table.row()
             
-            # 1. Imagem
-            # Busca no DF completo para garantir que acha o nome do arquivo
+            # 1. FOTO (Controlada)
             try:
                 nome_arq = df_completo.loc[df_completo["codigo"] == item["codigo"], "imagem"].values[0]
                 caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
                 if os.path.exists(caminho_img):
+                    # img_fill_width=True força a imagem a respeitar a coluna pequena (12%)
                     row.cell(img=caminho_img, img_fill_width=True)
                 else:
-                    row.cell("S/ FOTO")
+                    row.cell("-", align="C")
             except:
-                row.cell("-")
+                row.cell("-", align="C")
+
+            # 2. CÓDIGO
+            cod_str = str(item['codigo']).replace("AUTO-", "")
+            row.cell(cod_str, align="L")
             
-            # 2. Código
-            cod_str = str(item['codigo'])
-            if "AUTO-" in cod_str: cod_str = ""
-            row.cell(cod_str)
+            # 3. PRODUTO + EAN
+            ean = item['barras'] if 'barras' in item and str(item['barras']) != "nan" else ""
+            desc_text = f"{item['nome']}\nEAN: {ean}"
+            row.cell(desc_text)
             
-            # 3. Descrição (Correção do erro 'barras')
-            # Garante que 'barras' existe, se não, usa vazio
-            ean_val = item['barras'] if 'barras' in item and str(item['barras']) != "nan" else ""
-            desc = f"{item['nome']}\nEAN: {ean_val}"
-            row.cell(desc)
-            
-            # 4. Preço
+            # 4. PREÇO
             preco = f"R$ {item[tabela_col]:,.2f}"
-            row.cell(preco, align='R')
-            
-    pdf.ln(10)
+            row.cell(preco, style=FontFace(emphasis="BOLD"), align="R")
+
+    # --- RODAPÉ ---
+    pdf.ln(5)
     pdf.set_font("helvetica", 'I', 8)
-    pdf.multi_cell(0, 5, f"Obs: {obs if obs else 'Sujeito a alteração sem aviso prévio.'}")
+    pdf.multi_cell(0, 5, f"Observações: {obs if obs else 'Validade conforme estoque.'}")
     
     return pdf.output(dest='S')
 
@@ -130,13 +146,13 @@ with st.sidebar:
         if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
     if logo_path: st.image(logo_path, use_container_width=True)
     
-    st.header("Filtros")
+    st.header("Menu")
     filtro_fabrica = st.selectbox("Fabricante:", ["Todos"] + EMPRESAS)
     tabela_ativa = st.selectbox("Tabela:", colunas_preco) if colunas_preco else None
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Exportar PDF", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR PDF ---
+# --- ABA 1: GERADOR PDF (PREVIEW NA TELA + PDF REAL) ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -144,19 +160,18 @@ with tab_gerador:
         df_show = df.copy()
         if filtro_fabrica != "Todos": df_show = df_show[df_show["fabricante"] == filtro_fabrica]
         
-        st.write("Selecione os produtos:")
+        st.write("1. Marque os produtos:")
         df_show.insert(0, "Sel", False)
         
-        # AQUI ESTAVA O ERRO: Adicionei "barras" na lista de colunas
         edited = st.data_editor(
             df_show[["Sel", "codigo", "nome", "barras", tabela_ativa]], 
             hide_index=True,
             column_config={
-                "Sel": st.column_config.CheckboxColumn("", default=False),
+                "Sel": st.column_config.CheckboxColumn("Add", default=False),
                 tabela_ativa: st.column_config.NumberColumn("Preço", format="R$ %.2f")
             },
             disabled=["codigo", "nome", "barras", tabela_ativa],
-            use_container_width=True
+            use_container_width=True, height=300
         )
         
         st.divider()
@@ -167,24 +182,48 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            st.markdown("### Prévia:")
+            st.markdown("### 2. Confira a Prévia:")
+            
+            # PREVIEW BONITO NA TELA
             for i, row in selecionados.iterrows():
-                st.caption(f"• {row['nome']} - R$ {row[tabela_ativa]:,.2f}")
+                # Tenta pegar imagem para o preview
+                img_html = ""
+                try:
+                    nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
+                    caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+                    if os.path.exists(caminho_img):
+                        # Converte para base64 só para mostrar na tela
+                        with open(caminho_img, "rb") as f:
+                            b64 = base64.b64encode(f.read()).decode()
+                        img_html = f'<img src="data:image/jpeg;base64,{b64}" class="preview-img">'
+                except: pass
+                
+                st.markdown(f"""
+                <div class="preview-card">
+                    {img_html}
+                    <div class="preview-info">
+                        <div style="font-weight:bold;">{row['nome']}</div>
+                        <div style="font-size:12px; color:#666;">Cód: {row['codigo']}</div>
+                    </div>
+                    <div class="preview-price">R$ {row[tabela_ativa]:,.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             st.markdown("---")
             try:
-                # Passamos o 'df' completo para buscar as imagens corretamente
-                pdf_bytes = gerar_pdf_fpdf(selecionados, cliente, obs, tabela_ativa, df)
+                # GERA O PDF
+                pdf_bytes = gerar_pdf_final(selecionados, cliente, obs, tabela_ativa, df)
                 
                 st.download_button(
-                    label="📥 BAIXAR PDF AGORA",
+                    label="📥 BAIXAR PDF (FORMATADO)",
                     data=bytes(pdf_bytes),
                     file_name=f"Tabela_{cliente}.pdf",
                     mime="application/pdf",
-                    type="primary"
+                    type="primary",
+                    use_container_width=True
                 )
             except Exception as e:
-                st.error(f"Erro ao gerar PDF: {e}")
+                st.error(f"Erro: {e}")
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
@@ -201,8 +240,8 @@ with tab_cadastro:
         edit_cod = st.session_state["edit_codigo"]
         item = df[df["codigo"].astype(str) == str(edit_cod)].iloc[0] if edit_cod else None
         
-        st.subheader(f"Editando: {item['nome']}" if item is not None else "Novo Produto")
-        if item is not None and st.button("Cancelar Edição"): 
+        st.subheader(f"{'✏️ ' + item['nome'] if item is not None else '➕ Novo'}")
+        if item is not None and st.button("Cancelar"): 
             st.session_state["edit_codigo"] = None; st.rerun()
             
         with st.container(border=True):
@@ -250,7 +289,7 @@ with tab_cadastro:
                     
                     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).fillna(0)
                     df.to_csv(ARQUIVO_DB, index=False)
-                    st.success("Salvo!"); st.session_state["edit_codigo"] = None; time.sleep(0.5); st.rerun()
+                    st.success("Salvo!"); st.session_state["edit_codigo"] = None; st.rerun()
                 
                 if item is not None and st.button("Excluir"):
                     df = df[df["codigo"].astype(str) != str(final_cod)]
