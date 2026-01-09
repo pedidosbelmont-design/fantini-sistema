@@ -16,20 +16,19 @@ COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
 # --- CSS VISUAL (PREVIEW NA TELA) ---
+# Removemos o background global para corrigir o erro dos campos invisíveis
 st.markdown("""
 <style>
-    .stApp { background-color: #f0f2f6; }
-    
-    /* Card do Produto no Preview */
+    /* Card do Produto no Preview (Forçamos cores para garantir contraste) */
     .card-produto {
-        background-color: white;
+        background-color: #ffffff;
         padding: 10px;
         border-radius: 8px;
         border: 1px solid #e0e0e0;
         margin-bottom: 10px;
         display: flex;
         align-items: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .card-img {
         width: 50px;
@@ -38,15 +37,17 @@ st.markdown("""
         border-radius: 4px;
         border: 1px solid #eee;
         margin-right: 15px;
+        background-color: white;
     }
     .card-body { flex: 1; }
-    .card-title { font-weight: bold; font-size: 14px; color: #333; margin: 0; }
-    .card-sub { font-size: 11px; color: #666; margin-top: 2px; }
-    .card-price { font-weight: bold; font-size: 16px; color: #2e7d32; }
+    /* Textos do card forçados para preto para não sumir no modo dark */
+    .card-title { font-weight: bold; font-size: 14px; color: #000 !important; margin: 0; }
+    .card-sub { font-size: 11px; color: #555 !important; margin-top: 2px; }
+    .card-price { font-weight: bold; font-size: 16px; color: #2e7d32 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CLASSE PDF (LAYOUT RIGIDO) ---
+# --- 2. CLASSE PDF (LAYOUT AJUSTADO) ---
 class PDF(FPDF):
     def header(self):
         # Logo
@@ -55,15 +56,15 @@ class PDF(FPDF):
             if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
         
         if logo_path:
-            # x=10, y=8, w=30
-            self.image(logo_path, 10, 8, 30) 
+            # x=10, y=10, w=30 (Aumentei um pouco o Y para descer a logo)
+            self.image(logo_path, 10, 10, 30) 
         
         # Título
-        self.set_y(15)
+        self.set_y(18) # Desci o título para alinhar com a logo
         self.set_font('helvetica', 'B', 15)
-        self.cell(45) # Pula logo
+        self.cell(45) # Pula a largura da logo
         self.cell(0, 10, 'FANTINI REPRESENTAÇÕES', ln=False)
-        self.ln(20)
+        self.ln(25) # Quebra de linha maior para afastar do conteúdo
 
     def footer(self):
         self.set_y(-15)
@@ -71,16 +72,21 @@ class PDF(FPDF):
         self.cell(0, 10, f'Pag. {self.page_no()}/{{nb}}', align='C')
 
 def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
-    # A4 Portrait = 210mm largura. Margens default = 10mm esq/dir. Útil = 190mm.
+    # PDF SETUP
     pdf = PDF(orientation='P', unit='mm', format='A4')
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # --- CABEÇALHO CINZA ---
-    pdf.set_fill_color(240, 240, 240)
-    pdf.rect(10, 30, 190, 25, 'F')
+    # --- CABEÇALHO CINZA (POSICIONAMENTO NOVO) ---
+    # Antes estava em Y=30. Mudei para Y=45 para não cobrir a logo.
+    y_inicio_box = 45 
     
-    pdf.set_y(32)
+    pdf.set_fill_color(240, 240, 240)
+    # x=10, y=45, w=190, h=25
+    pdf.rect(10, y_inicio_box, 190, 25, 'F')
+    
+    # Textos dentro da caixa cinza
+    pdf.set_y(y_inicio_box + 2) 
     pdf.set_x(15)
     pdf.set_font("helvetica", 'B', 10)
     pdf.cell(0, 5, f"TABELA: {tabela_col.upper()}", ln=True)
@@ -91,18 +97,18 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
     
     pdf.set_x(15)
     pdf.cell(0, 5, f"DATA: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(10)
+    
+    # Espaço para começar a tabela (pula a caixa cinza)
+    pdf.set_y(y_inicio_box + 30) 
     
     # --- TABELA DE PRODUTOS ---
-    # Larguras Fixas (Total 190mm)
-    # Foto: 15mm | Cód: 25mm | Descrição: 110mm | Preço: 40mm
     w_foto = 15
     w_cod = 25
     w_desc = 110
     w_preco = 40
     col_widths = (w_foto, w_cod, w_desc, w_preco)
     
-    # line_height=15 é o segredo para a foto caber verticalmente sem quebrar layout
+    # line_height=15 garante espaço vertical para a foto
     with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"), line_height=15) as table:
         
         # Cabeçalho da Tabela
@@ -122,13 +128,11 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
             # 1. FOTO
             img_inserida = False
             try:
-                # Pega nome da imagem do banco original
                 nome_arq = df_completo.loc[df_completo["codigo"] == item["codigo"], "imagem"].values[0]
                 caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
                 
                 if os.path.exists(caminho_img):
-                    # img_fill_width=True força a imagem a ter 15mm de largura
-                    # Como definimos a linha com 15mm de altura, fica quadrado perfeito.
+                    # img_fill_width=True força largura 15mm
                     row.cell(img=caminho_img, img_fill_width=True)
                     img_inserida = True
             except:
@@ -139,7 +143,7 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
 
             # 2. CÓDIGO
             cod_limpo = str(item['codigo']).replace("AUTO-", "")
-            row.cell(cod_limpo, align="C") # Centralizado verticalmente pelo fpdf
+            row.cell(cod_limpo, align="C")
             
             # 3. DESCRIÇÃO
             ean = item['barras'] if str(item['barras']) != "nan" else ""
@@ -150,7 +154,7 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
             txt_preco = f"R$ {item[tabela_col]:,.2f}"
             row.cell(txt_preco, style=FontFace(emphasis="BOLD"))
 
-    # --- OBSERVAÇÕES ---
+    # --- RODAPÉ OBS ---
     pdf.ln(5)
     pdf.set_font("helvetica", 'I', 8)
     pdf.multi_cell(0, 5, f"Obs: {obs if obs else 'Sujeito a alteração sem aviso prévio.'}")
@@ -213,11 +217,10 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            st.markdown("### 2. Confira (Preview Simplificado):")
+            st.markdown("### 2. Confira (Preview):")
             
-            # PREVIEW HTML LIMPO (RESOLVE O PROBLEMA DOS "2 CÓDIGOS")
             for i, row in selecionados.iterrows():
-                # Tenta achar imagem para preview
+                # Preview Imagem
                 img_tag = ""
                 try:
                     nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
@@ -228,7 +231,7 @@ with tab_gerador:
                         img_tag = f'<img src="data:image/jpeg;base64,{b64}" class="card-img">'
                 except: pass
                 
-                # HTML CARD
+                # HTML Card Seguro
                 st.markdown(f"""
                 <div class="card-produto">
                     {img_tag}
@@ -241,15 +244,12 @@ with tab_gerador:
                 """, unsafe_allow_html=True)
 
             st.markdown("---")
-            
-            # GERAR PDF
             try:
                 pdf_bytes = gerar_pdf_final(selecionados, cliente, obs, tabela_ativa, df)
-                
                 st.download_button(
-                    label="📥 BAIXAR PDF CORRIGIDO",
+                    label="📥 BAIXAR PDF (FINAL)",
                     data=bytes(pdf_bytes),
-                    file_name=f"Pedido_{cliente}.pdf",
+                    file_name=f"Tabela_{cliente if cliente else 'Geral'}.pdf",
                     mime="application/pdf",
                     type="primary",
                     use_container_width=True
@@ -259,12 +259,14 @@ with tab_gerador:
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
+    # Ajuste de Layout para melhorar visibilidade
     c1, c2 = st.columns([2, 1])
+    
     with c2:
-        st.write("Buscar:")
+        st.info("🔍 **Buscar Produto**")
         opcoes = df["codigo"].astype(str) + " | " + df["nome"]
-        busca = st.selectbox("Editar:", ["Novo"] + list(opcoes))
-        if st.button("Carregar"):
+        busca = st.selectbox("Selecione para Editar:", ["Novo"] + list(opcoes))
+        if st.button("Carregar Dados", use_container_width=True):
             st.session_state["edit_codigo"] = busca.split(" | ")[0] if busca != "Novo" else None
             st.rerun()
             
@@ -272,33 +274,39 @@ with tab_cadastro:
         edit_cod = st.session_state["edit_codigo"]
         item = df[df["codigo"].astype(str) == str(edit_cod)].iloc[0] if edit_cod else None
         
-        st.subheader(f"{'✏️ ' + item['nome'] if item is not None else '➕ Novo'}")
-        if item is not None and st.button("Cancelar"): 
-            st.session_state["edit_codigo"] = None; st.rerun()
+        st.subheader(f"{'✏️ Editando: ' + item['nome'] if item is not None else '➕ Cadastrar Novo Produto'}")
+        
+        if item is not None:
+            if st.button("Cancelar Edição", type="secondary"): 
+                st.session_state["edit_codigo"] = None; st.rerun()
             
         with st.container(border=True):
             idx_fab = EMPRESAS.index(item["fabricante"]) if item is not None and item["fabricante"] in EMPRESAS else 0
-            fab = st.selectbox("Fab:", EMPRESAS, index=idx_fab)
-            nome = st.text_input("Nome:", value=item["nome"] if item is not None else "")
+            fab = st.selectbox("Fabricante:", EMPRESAS, index=idx_fab)
+            nome = st.text_input("Nome do Produto *", value=item["nome"] if item is not None else "")
             
             cc1, cc2 = st.columns(2)
             val_cod = item["codigo"] if item is not None else ""
             if "AUTO-" in str(val_cod): val_cod = ""
             
-            cod = cc1.text_input("Cód:", value=val_cod, disabled=(item is not None))
-            ean = cc2.text_input("EAN:", value=item["barras"] if item is not None else "")
+            cod = cc1.text_input("Código Interno:", value=val_cod, disabled=(item is not None), placeholder="Deixe vazio p/ automático")
+            ean = cc2.text_input("EAN / Barras:", value=item["barras"] if item is not None else "")
             
-            file = st.file_uploader("Foto:", type=["jpg", "png"])
-            if item is not None and not file: st.caption(f"Atual: {item['imagem']}")
+            file = st.file_uploader("Foto do Produto:", type=["jpg", "png"])
+            if item is not None and not file: st.caption(f"Imagem atual: {item['imagem']}")
             
-            st.divider()
+            st.markdown("---")
             if colunas_preco:
+                st.write("💰 **Preços:**")
                 precos = {}
-                for cp in colunas_preco:
-                    v = float(item[cp]) if item is not None else 0.0
-                    precos[cp] = st.number_input(f"{cp} (R$)", value=v)
+                cols_p = st.columns(len(colunas_preco) if len(colunas_preco) < 4 else 3)
+                for idx, cp in enumerate(colunas_preco):
+                    with cols_p[idx % 3]: # Distribui em colunas
+                        v = float(item[cp]) if item is not None else 0.0
+                        precos[cp] = st.number_input(f"{cp} (R$)", value=v)
                 
-                if st.button("Salvar", type="primary"):
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("💾 SALVAR PRODUTO", type="primary", use_container_width=True):
                     if not nome: st.warning("Nome obrigatório"); st.stop()
                     final_cod = cod if cod else (item["codigo"] if item is not None else f"AUTO-{int(time.time())}")
                     
@@ -307,6 +315,7 @@ with tab_cadastro:
 
                     img_name = "sem_foto.png"
                     if item is not None:
+                        # Remove antigo para salvar novo
                         df = df[df["codigo"].astype(str) != str(final_cod)]
                         old_row = pd.read_csv(ARQUIVO_DB)
                         old_row = old_row[old_row["codigo"].astype(str) == str(final_cod)]
@@ -321,23 +330,24 @@ with tab_cadastro:
                     
                     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).fillna(0)
                     df.to_csv(ARQUIVO_DB, index=False)
-                    st.success("Salvo!"); st.session_state["edit_codigo"] = None; st.rerun()
+                    st.success("✅ Produto Salvo!"); st.session_state["edit_codigo"] = None; st.rerun()
                 
-                if item is not None and st.button("Excluir"):
-                    df = df[df["codigo"].astype(str) != str(final_cod)]
-                    df.to_csv(ARQUIVO_DB, index=False)
-                    st.success("Apagado!"); st.session_state["edit_codigo"] = None; st.rerun()
+                if item is not None:
+                    if st.button("🗑️ Excluir Produto", use_container_width=True):
+                        df = df[df["codigo"].astype(str) != str(final_cod)]
+                        df.to_csv(ARQUIVO_DB, index=False)
+                        st.success("Produto Excluído!"); st.session_state["edit_codigo"] = None; st.rerun()
 
 # --- ABA 3: TABELAS ---
 with tab_config:
     c1, c2 = st.columns(2)
     with c1:
-        n = st.text_input("Nova Tabela:")
+        n = st.text_input("Nova Tabela de Preço:")
         if st.button("Criar Tabela"):
             if n and n not in df.columns: 
                 df[n] = 0.0; df.to_csv(ARQUIVO_DB, index=False); st.rerun()
     with c2:
         if colunas_preco:
-            d = st.selectbox("Apagar:", colunas_preco)
-            if st.button("Apagar Tabela"):
+            d = st.selectbox("Apagar Tabela:", colunas_preco)
+            if st.button("Apagar Definitivamente"):
                 df = df.drop(columns=[d]); df.to_csv(ARQUIVO_DB, index=False); st.rerun()
