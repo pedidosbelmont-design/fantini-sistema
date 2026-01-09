@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components # Necessário para o botão de imprimir
 import pandas as pd
 import os
 import time
@@ -20,43 +21,41 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- FUNÇÃO THUMBNAIL (CRUCIAL PARA NÃO TRAVAR) ---
+# --- FUNÇÃO THUMBNAIL ---
 def get_thumbnail_as_base64(file_path):
-    # Retorna uma string base64 limpa da imagem redimensionada
-    if not os.path.exists(file_path):
-        return None
+    if not os.path.exists(file_path): return None
     try:
         img = Image.open(file_path)
         if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-        img.thumbnail((100, 100)) # Garante que é pequena
+        img.thumbnail((100, 100)) 
         buffered = io.BytesIO()
         img.save(buffered, format="JPEG", quality=80)
         return base64.b64encode(buffered.getvalue()).decode()
-    except:
-        return None
+    except: return None
 
-# --- CSS LIMPO ---
+# --- CSS DEFINITIVO ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
     
-    /* A4 Paper */
+    /* FOLHA A4 */
     .folha-a4 {
         background: white;
         width: 210mm; min-height: 297mm;
         margin: 20px auto; padding: 15mm;
         box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        font-family: Arial, sans-serif;
     }
     
-    /* Header */
+    /* CABEÇALHO */
     .header-box {
         display: flex; justify-content: space-between; align-items: flex-end;
         border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px;
     }
     
-    /* Tabela */
+    /* TABELA */
     .tabela-clean {
-        width: 100%; border-collapse: collapse; font-family: sans-serif;
+        width: 100%; border-collapse: collapse;
     }
     .tabela-clean th {
         background: #2c3e50 !important; color: white !important;
@@ -69,10 +68,10 @@ st.markdown("""
     }
     .tabela-clean tr:nth-child(even) { background: #f9f9f9 !important; -webkit-print-color-adjust: exact; }
 
-    /* Imagem */
+    /* IMAGEM */
     .img-thumb { width: 50px; height: 50px; object-fit: contain; display: block; }
 
-    /* Impressão */
+    /* IMPRESSÃO (CTRL+P) */
     @media print {
         body { background: white; }
         [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, .stButton, footer, .no-print { display: none !important; }
@@ -92,14 +91,11 @@ def carregar():
     if "fabricante" not in df.columns: df["fabricante"] = "Geral"; df.to_csv(ARQUIVO_DB, index=False)
     return df
 
-def salvar(df): df.to_csv(ARQUIVO_DB, index=False)
-
 # --- INTERFACE ---
 df = carregar()
 colunas_preco = [c for c in df.columns if c not in COLUNAS_FIXAS]
 
 with st.sidebar:
-    # Logo Fantini
     logo_path = None
     for ext in ["png", "jpg"]:
         if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
@@ -111,7 +107,7 @@ with st.sidebar:
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Gerador A4", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR A4 (LÓGICA BLINDADA) ---
+# --- ABA 1: GERADOR A4 ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -122,7 +118,6 @@ with tab_gerador:
         st.write("Selecione os produtos:")
         df_show.insert(0, "Sel", False)
         
-        # Editor
         edited = st.data_editor(
             df_show[["Sel", "codigo", "nome", tabela_ativa]],
             hide_index=True,
@@ -140,7 +135,15 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            # 1. MONTAR CABEÇALHO HTML
+            # BOTÃO DE IMPRESSÃO VIA JAVASCRIPT
+            st.markdown("---")
+            col_print, col_info = st.columns([1, 4])
+            with col_print:
+                # Esse botão aciona o Ctrl+P automaticamente
+                if st.button("🖨️ IMPRIMIR / PDF", type="primary"):
+                    components.html("<script>window.print()</script>", height=0, width=0)
+            
+            # GERAÇÃO HTML
             logo_html = "<h2>FANTINI</h2>"
             if logo_path:
                 b64_logo = get_thumbnail_as_base64(logo_path)
@@ -169,24 +172,18 @@ with tab_gerador:
                     <tbody>
             """
             
-            # 2. MONTAR LINHAS (SEM COMPLEXIDADE)
             for i, row in selecionados.iterrows():
-                # Busca imagem segura
                 img_cell = "<span style='color:#ccc; font-size:10px'>S/ FOTO</span>"
                 try:
                     full_row = df[df["codigo"] == row["codigo"]].iloc[0]
                     path_img = os.path.join(PASTA_IMAGENS, str(full_row["imagem"]))
-                    
                     b64_prod = get_thumbnail_as_base64(path_img)
-                    if b64_prod:
-                        img_cell = f'<img src="data:image/jpeg;base64,{b64_prod}" class="img-thumb">'
-                except:
-                    pass
+                    if b64_prod: img_cell = f'<img src="data:image/jpeg;base64,{b64_prod}" class="img-thumb">'
+                except: pass
 
                 cod = row['codigo']
                 if "AUTO-" in str(cod): cod = ""
                 
-                # SOMA SIMPLES DE STRING (EVITA ERRO DE IDENTAÇÃO)
                 html_content += "<tr>"
                 html_content += f"<td align='center'>{img_cell}</td>"
                 html_content += f"<td><b>{cod}</b></td>"
@@ -194,7 +191,6 @@ with tab_gerador:
                 html_content += f"<td align='right'><b>R$ {row[tabela_ativa]:,.2f}</b></td>"
                 html_content += "</tr>"
 
-            # 3. FECHAR HTML
             html_content += f"""
                     </tbody>
                 </table>
@@ -203,10 +199,20 @@ with tab_gerador:
                 </div>
             </div>
             """
-            
-            # RENDERIZA
             st.markdown(html_content, unsafe_allow_html=True)
-            st.info("Pressione Ctrl+P para imprimir (Marque 'Gráficos de segundo plano').")
+            
+            # GUIA VISUAL DE IMPRESSÃO (PARA NÃO ESQUECER)
+            st.markdown("""
+            <div class="no-print" style="margin-top:20px; background:#e3f2fd; padding:15px; border-radius:8px; border:1px solid #90caf9;">
+                <h4 style="margin:0; color:#1565c0 !important;">📝 Como Salvar em PDF:</h4>
+                <ol style="margin-top:5px; color:#333;">
+                    <li>Clique no botão <b>Imprimir</b> acima ou aperte <b>Ctrl + P</b>.</li>
+                    <li>Em "Destino", escolha <b>Salvar como PDF</b>.</li>
+                    <li><b>IMPORTANTE:</b> Vá em "Mais definições" e marque a caixinha <b>☑️ Gráficos de segundo plano</b>.</li>
+                    <li>Clique em Salvar!</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
@@ -233,7 +239,6 @@ with tab_cadastro:
             nome = st.text_input("Nome:", value=item["nome"] if item is not None else "")
             
             cc1, cc2 = st.columns(2)
-            # Tratamento visual codigo
             val_cod = item["codigo"] if item is not None else ""
             if "AUTO-" in str(val_cod): val_cod = ""
             
@@ -252,8 +257,6 @@ with tab_cadastro:
                 
                 if st.button("Salvar", type="primary"):
                     if not nome: st.warning("Nome obrigatório"); st.stop()
-                    
-                    # Logica salvar
                     final_cod = cod if cod else (item["codigo"] if item is not None else f"AUTO-{int(time.time())}")
                     
                     if not item and str(final_cod) in df["codigo"].astype(str).values:
@@ -261,8 +264,7 @@ with tab_cadastro:
 
                     img_name = "sem_foto.png"
                     if item is not None:
-                        df = df[df["codigo"].astype(str) != str(final_cod)] # Remove antigo
-                        # Tenta manter imagem antiga
+                        df = df[df["codigo"].astype(str) != str(final_cod)]
                         old_row = pd.read_csv(ARQUIVO_DB)
                         old_row = old_row[old_row["codigo"].astype(str) == str(final_cod)]
                         if not old_row.empty: img_name = old_row.iloc[0]["imagem"]
