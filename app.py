@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import os
 import time
-import base64
 import io
 from datetime import datetime
 from PIL import Image
-from xhtml2pdf import pisa # Biblioteca Nova para gerar o PDF real
+from fpdf import FPDF # Nova biblioteca LEVE
 
 # --- 1. CONFIGURAÇÃO GERAL ---
 st.set_page_config(
@@ -21,43 +20,98 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- FUNÇÃO: THUMBNAIL (Para visualização na tela) ---
-def get_thumbnail_base64(file_path):
-    if not os.path.exists(file_path): return None
-    try:
-        img = Image.open(file_path)
-        if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-        img.thumbnail((100, 100)) 
-        buffered = io.BytesIO()
-        img.save(buffered, format="JPEG", quality=80)
-        return base64.b64encode(buffered.getvalue()).decode()
-    except: return None
-
-# --- FUNÇÃO: GERAR PDF BINÁRIO (Para o botão de download) ---
-def criar_pdf_binario(html_string):
-    """Converte a string HTML em um arquivo PDF real na memória"""
-    result = io.BytesIO()
-    # PISA/XHTML2PDF converte o HTML para PDF
-    pisa_status = pisa.CreatePDF(
-        io.BytesIO(html_string.encode("utf-8")),
-        dest=result,
-        encoding='utf-8'
-    )
-    if pisa_status.err:
-        return None
-    return result.getvalue()
-
-# --- CSS APENAS PARA A TELA (Visualização) ---
+# --- CSS PARA TELA ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
-    /* Estilo do Preview na Tela */
     .preview-box {
-        background: white; padding: 20px; border: 1px solid #ddd;
-        border-radius: 8px; margin-bottom: 20px;
+        background: white; padding: 20px; border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px;
+        font-family: Arial, sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# --- 2. CLASSE GERADORA DE PDF (FPDF2) ---
+class PDF(FPDF):
+    def header(self):
+        # Tenta colocar a logo
+        logo_path = None
+        for ext in ["png", "jpg"]:
+            if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
+        
+        if logo_path:
+            self.image(logo_path, 10, 8, 33) # x, y, w
+        
+        self.set_font('helvetica', 'B', 15)
+        self.cell(80) # Move para direita
+        self.cell(30, 10, 'FANTINI REPRESENTAÇÕES', 0, 0, 'C')
+        self.ln(20) # Quebra de linha
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('helvetica', 'I', 8)
+        self.cell(0, 10, f'Pagina {self.page_no()}/{{nb}}', 0, 0, 'C')
+
+def gerar_pdf_fpdf(df_itens, cliente, obs, tabela_col):
+    pdf = PDF()
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    pdf.set_font("helvetica", size=12)
+    
+    # Cabeçalho do Pedido
+    pdf.set_font("helvetica", 'B', 12)
+    pdf.cell(0, 10, f"TABELA DE PREÇOS: {tabela_col}", ln=True)
+    pdf.set_font("helvetica", size=10)
+    pdf.cell(0, 5, f"Cliente: {cliente}", ln=True)
+    pdf.cell(0, 5, f"Data: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+    pdf.ln(5)
+    
+    # Configuração da Tabela
+    # Colunas: Foto(20mm), Cód(25mm), Produto(90mm), Preço(30mm)
+    
+    with pdf.table() as table:
+        # Cabeçalho da Tabela
+        row = table.row()
+        row.cell("FOTO")
+        row.cell("CÓDIGO")
+        row.cell("PRODUTO")
+        row.cell("PREÇO")
+        
+        # Linhas
+        for idx, item in df_itens.iterrows():
+            row = table.row()
+            
+            # 1. Foto (Trick para inserir imagem na célula)
+            nome_arq = df.loc[df["codigo"] == item["codigo"], "imagem"].values[0]
+            caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+            
+            # Se a imagem existe, inserimos. Se não, deixamos vazio.
+            if os.path.exists(caminho_img):
+                row.cell(img=caminho_img, img_fill_width=True)
+            else:
+                row.cell("S/ FOTO")
+            
+            # 2. Dados Texto
+            cod_str = str(item['codigo'])
+            if "AUTO-" in cod_str: cod_str = ""
+            row.cell(cod_str)
+            
+            # 3. Nome + EAN
+            ean = item['barras'] if str(item['barras']) != "nan" else ""
+            desc = f"{item['nome']}\nEAN: {ean}"
+            row.cell(desc)
+            
+            # 4. Preço
+            preco = f"R$ {item[tabela_col]:,.2f}"
+            row.cell(preco, align='R')
+            
+    # Rodapé Obs
+    pdf.ln(10)
+    pdf.set_font("helvetica", 'I', 8)
+    pdf.multi_cell(0, 5, f"Obs: {obs if obs else 'Sujeito a alteração sem aviso prévio.'}")
+    
+    return pdf.output(dest='S') # Retorna os bytes do PDF
 
 # --- INICIALIZAÇÃO ---
 if not os.path.exists(PASTA_IMAGENS): os.makedirs(PASTA_IMAGENS)
@@ -85,7 +139,7 @@ with st.sidebar:
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Exportar PDF", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR PDF (SEM IMPRESSÃO DE NAVEGADOR) ---
+# --- ABA 1: GERADOR PDF (FPDF2) ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -113,111 +167,28 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            # --- 1. PREPARAR DADOS PARA O HTML ---
-            # Para o PDF ficar perfeito, usamos tabelas HTML clássicas (sem flexbox)
-            # pois o gerador de PDF entende melhor tabelas antigas.
-            
-            logo_img_tag = ""
-            if logo_path:
-                b64 = get_thumbnail_base64(logo_path)
-                if b64: logo_img_tag = f'<img src="data:image/jpeg;base64,{b64}" style="width:120px;">'
-            
-            data_hoje = datetime.now().strftime("%d/%m/%Y")
-            
-            # Montando as linhas da tabela
-            linhas_html = ""
+            # Mostra preview simples na tela (HTML básico)
+            st.markdown("### Prévia dos Itens:")
             for i, row in selecionados.iterrows():
-                # Imagem
-                img_tag = ""
-                try:
-                    full_row = df[df["codigo"] == row["codigo"]].iloc[0]
-                    path_img = os.path.join(PASTA_IMAGENS, str(full_row["imagem"]))
-                    b64_prod = get_thumbnail_base64(path_img)
-                    if b64_prod: 
-                        img_tag = f'<img src="data:image/jpeg;base64,{b64_prod}" style="width:40px; height:40px;">'
-                except: pass
-
-                cod = row['codigo']
-                if "AUTO-" in str(cod): cod = ""
+                st.caption(f"• {row['codigo']} - {row['nome']} - R$ {row[tabela_ativa]:,.2f}")
+            
+            st.markdown("---")
+            
+            # GERAÇÃO DO PDF REAL
+            try:
+                # Chama a função que cria o binário do PDF
+                pdf_bytes = gerar_pdf_fpdf(selecionados, cliente, obs, tabela_ativa)
                 
-                linhas_html += f"""
-                <tr>
-                    <td style="border-bottom:1px solid #ccc; padding:5px; text-align:center;">{img_tag}</td>
-                    <td style="border-bottom:1px solid #ccc; padding:5px;"><b>{cod}</b></td>
-                    <td style="border-bottom:1px solid #ccc; padding:5px;">{row['nome']}</td>
-                    <td style="border-bottom:1px solid #ccc; padding:5px; text-align:right;">R$ {row[tabela_ativa]:,.2f}</td>
-                </tr>
-                """
-
-            # --- 2. O HTML COMPLETO (TEMPLATE) ---
-            # CSS inline para garantir que o PDF entenda as cores e bordas
-            html_template = f"""
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Helvetica, sans-serif; font-size: 12px; }}
-                    table {{ width: 100%; border-collapse: collapse; }}
-                    th {{ background-color: #2c3e50; color: white; padding: 8px; text-align: left; }}
-                    .header-tbl td {{ border: none; vertical-align: bottom; }}
-                </style>
-            </head>
-            <body>
-                <table class="header-tbl" style="margin-bottom:20px;">
-                    <tr>
-                        <td width="50%">
-                            {logo_img_tag}<br>
-                            <span style="color:#666;">Representação Comercial</span>
-                        </td>
-                        <td width="50%" style="text-align:right;">
-                            <h2 style="margin:0; color:#2c3e50;">TABELA DE PREÇOS</h2>
-                            <div>Tabela: <b>{tabela_ativa}</b></div>
-                            <div>Data: {data_hoje}</div>
-                            <div>Cliente: <b>{cliente}</b></div>
-                        </td>
-                    </tr>
-                </table>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th width="50">Foto</th>
-                            <th width="80">Cód</th>
-                            <th>Produto</th>
-                            <th width="100" align="right">Preço</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {linhas_html}
-                    </tbody>
-                </table>
-
-                <div style="margin-top:30px; text-align:center; color:#777; font-size:10px; border-top:1px solid #ccc; padding-top:10px;">
-                    {obs if obs else 'Sujeito a alteração sem aviso prévio.'}
-                </div>
-            </body>
-            </html>
-            """
-            
-            # --- 3. MOSTRAR PREVIEW E BOTÃO ---
-            st.markdown("### Visualização Prévia:")
-            # Mostra uma versão simplificada na tela
-            st.markdown(f'<div class="preview-box">{html_template}</div>', unsafe_allow_html=True)
-            
-            # GERA O PDF
-            pdf_bytes = criar_pdf_binario(html_template)
-            
-            if pdf_bytes:
-                st.success("✅ PDF Gerado com sucesso!")
-                # BOTÃO DE DOWNLOAD REAL
+                # BOTÃO DE DOWNLOAD
                 st.download_button(
-                    label="📥 BAIXAR ARQUIVO PDF AGORA",
-                    data=pdf_bytes,
-                    file_name=f"Tabela_{cliente}_{data_hoje.replace('/','-')}.pdf",
+                    label="📥 BAIXAR PDF AGORA",
+                    data=bytes(pdf_bytes),
+                    file_name=f"Tabela_{cliente}.pdf",
                     mime="application/pdf",
                     type="primary"
                 )
-            else:
-                st.error("Erro ao gerar PDF. Verifique se instalou o 'xhtml2pdf'.")
+            except Exception as e:
+                st.error(f"Erro ao gerar PDF: {e}")
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
