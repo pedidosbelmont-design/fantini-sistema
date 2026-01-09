@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components # Necessário para o botão de imprimir
 import pandas as pd
 import os
 import time
@@ -7,6 +6,7 @@ import base64
 import io
 from datetime import datetime
 from PIL import Image
+from xhtml2pdf import pisa # Biblioteca Nova para gerar o PDF real
 
 # --- 1. CONFIGURAÇÃO GERAL ---
 st.set_page_config(
@@ -21,8 +21,8 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- FUNÇÃO THUMBNAIL ---
-def get_thumbnail_as_base64(file_path):
+# --- FUNÇÃO: THUMBNAIL (Para visualização na tela) ---
+def get_thumbnail_base64(file_path):
     if not os.path.exists(file_path): return None
     try:
         img = Image.open(file_path)
@@ -33,50 +33,28 @@ def get_thumbnail_as_base64(file_path):
         return base64.b64encode(buffered.getvalue()).decode()
     except: return None
 
-# --- CSS DEFINITIVO ---
+# --- FUNÇÃO: GERAR PDF BINÁRIO (Para o botão de download) ---
+def criar_pdf_binario(html_string):
+    """Converte a string HTML em um arquivo PDF real na memória"""
+    result = io.BytesIO()
+    # PISA/XHTML2PDF converte o HTML para PDF
+    pisa_status = pisa.CreatePDF(
+        io.BytesIO(html_string.encode("utf-8")),
+        dest=result,
+        encoding='utf-8'
+    )
+    if pisa_status.err:
+        return None
+    return result.getvalue()
+
+# --- CSS APENAS PARA A TELA (Visualização) ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
-    
-    /* FOLHA A4 */
-    .folha-a4 {
-        background: white;
-        width: 210mm; min-height: 297mm;
-        margin: 20px auto; padding: 15mm;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        font-family: Arial, sans-serif;
-    }
-    
-    /* CABEÇALHO */
-    .header-box {
-        display: flex; justify-content: space-between; align-items: flex-end;
-        border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px;
-    }
-    
-    /* TABELA */
-    .tabela-clean {
-        width: 100%; border-collapse: collapse;
-    }
-    .tabela-clean th {
-        background: #2c3e50 !important; color: white !important;
-        padding: 8px; text-align: left; font-size: 12px;
-        -webkit-print-color-adjust: exact;
-    }
-    .tabela-clean td {
-        padding: 8px; border-bottom: 1px solid #ccc;
-        font-size: 12px; color: #000; vertical-align: middle;
-    }
-    .tabela-clean tr:nth-child(even) { background: #f9f9f9 !important; -webkit-print-color-adjust: exact; }
-
-    /* IMAGEM */
-    .img-thumb { width: 50px; height: 50px; object-fit: contain; display: block; }
-
-    /* IMPRESSÃO (CTRL+P) */
-    @media print {
-        body { background: white; }
-        [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, .stButton, footer, .no-print { display: none !important; }
-        .block-container { padding: 0 !important; margin: 0 !important; }
-        .folha-a4 { margin: 0; box-shadow: none; border: none; width: 100%; }
+    /* Estilo do Preview na Tela */
+    .preview-box {
+        background: white; padding: 20px; border: 1px solid #ddd;
+        border-radius: 8px; margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -105,9 +83,9 @@ with st.sidebar:
     filtro_fabrica = st.selectbox("Fabricante:", ["Todos"] + EMPRESAS)
     tabela_ativa = st.selectbox("Tabela:", colunas_preco) if colunas_preco else None
 
-tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Gerador A4", "📝 Cadastro", "⚙️ Tabelas"])
+tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Exportar PDF", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR A4 ---
+# --- ABA 1: GERADOR PDF (SEM IMPRESSÃO DE NAVEGADOR) ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -135,84 +113,111 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            # BOTÃO DE IMPRESSÃO VIA JAVASCRIPT
-            st.markdown("---")
-            col_print, col_info = st.columns([1, 4])
-            with col_print:
-                # Esse botão aciona o Ctrl+P automaticamente
-                if st.button("🖨️ IMPRIMIR / PDF", type="primary"):
-                    components.html("<script>window.print()</script>", height=0, width=0)
+            # --- 1. PREPARAR DADOS PARA O HTML ---
+            # Para o PDF ficar perfeito, usamos tabelas HTML clássicas (sem flexbox)
+            # pois o gerador de PDF entende melhor tabelas antigas.
             
-            # GERAÇÃO HTML
-            logo_html = "<h2>FANTINI</h2>"
+            logo_img_tag = ""
             if logo_path:
-                b64_logo = get_thumbnail_as_base64(logo_path)
-                if b64_logo: logo_html = f'<img src="data:image/jpeg;base64,{b64_logo}" style="max-height:60px">'
+                b64 = get_thumbnail_base64(logo_path)
+                if b64: logo_img_tag = f'<img src="data:image/jpeg;base64,{b64}" style="width:120px;">'
             
             data_hoje = datetime.now().strftime("%d/%m/%Y")
             
-            html_content = f"""
-            <div class="folha-a4">
-                <div class="header-box">
-                    <div>{logo_html}<br><small>Representação Comercial</small></div>
-                    <div style="text-align:right">
-                        <h3>TABELA DE PREÇOS</h3>
-                        <div>Tabela: <strong>{tabela_ativa}</strong></div>
-                        <div>Data: {data_hoje}</div>
-                        <div>Cliente: <strong>{cliente}</strong></div>
-                    </div>
-                </div>
-                <table class="tabela-clean">
-                    <thead><tr>
-                        <th width="60">Foto</th>
-                        <th>Cód</th>
-                        <th>Produto</th>
-                        <th style="text-align:right">Preço</th>
-                    </tr></thead>
-                    <tbody>
-            """
-            
+            # Montando as linhas da tabela
+            linhas_html = ""
             for i, row in selecionados.iterrows():
-                img_cell = "<span style='color:#ccc; font-size:10px'>S/ FOTO</span>"
+                # Imagem
+                img_tag = ""
                 try:
                     full_row = df[df["codigo"] == row["codigo"]].iloc[0]
                     path_img = os.path.join(PASTA_IMAGENS, str(full_row["imagem"]))
-                    b64_prod = get_thumbnail_as_base64(path_img)
-                    if b64_prod: img_cell = f'<img src="data:image/jpeg;base64,{b64_prod}" class="img-thumb">'
+                    b64_prod = get_thumbnail_base64(path_img)
+                    if b64_prod: 
+                        img_tag = f'<img src="data:image/jpeg;base64,{b64_prod}" style="width:40px; height:40px;">'
                 except: pass
 
                 cod = row['codigo']
                 if "AUTO-" in str(cod): cod = ""
                 
-                html_content += "<tr>"
-                html_content += f"<td align='center'>{img_cell}</td>"
-                html_content += f"<td><b>{cod}</b></td>"
-                html_content += f"<td>{row['nome']}</td>"
-                html_content += f"<td align='right'><b>R$ {row[tabela_ativa]:,.2f}</b></td>"
-                html_content += "</tr>"
+                linhas_html += f"""
+                <tr>
+                    <td style="border-bottom:1px solid #ccc; padding:5px; text-align:center;">{img_tag}</td>
+                    <td style="border-bottom:1px solid #ccc; padding:5px;"><b>{cod}</b></td>
+                    <td style="border-bottom:1px solid #ccc; padding:5px;">{row['nome']}</td>
+                    <td style="border-bottom:1px solid #ccc; padding:5px; text-align:right;">R$ {row[tabela_ativa]:,.2f}</td>
+                </tr>
+                """
 
-            html_content += f"""
+            # --- 2. O HTML COMPLETO (TEMPLATE) ---
+            # CSS inline para garantir que o PDF entenda as cores e bordas
+            html_template = f"""
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Helvetica, sans-serif; font-size: 12px; }}
+                    table {{ width: 100%; border-collapse: collapse; }}
+                    th {{ background-color: #2c3e50; color: white; padding: 8px; text-align: left; }}
+                    .header-tbl td {{ border: none; vertical-align: bottom; }}
+                </style>
+            </head>
+            <body>
+                <table class="header-tbl" style="margin-bottom:20px;">
+                    <tr>
+                        <td width="50%">
+                            {logo_img_tag}<br>
+                            <span style="color:#666;">Representação Comercial</span>
+                        </td>
+                        <td width="50%" style="text-align:right;">
+                            <h2 style="margin:0; color:#2c3e50;">TABELA DE PREÇOS</h2>
+                            <div>Tabela: <b>{tabela_ativa}</b></div>
+                            <div>Data: {data_hoje}</div>
+                            <div>Cliente: <b>{cliente}</b></div>
+                        </td>
+                    </tr>
+                </table>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="50">Foto</th>
+                            <th width="80">Cód</th>
+                            <th>Produto</th>
+                            <th width="100" align="right">Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {linhas_html}
                     </tbody>
                 </table>
-                <div style="margin-top:20px; text-align:center; font-size:11px; color:#666; border-top:1px solid #ddd; padding-top:5px">
-                    {obs if obs else 'Sujeito a alteração.'}
+
+                <div style="margin-top:30px; text-align:center; color:#777; font-size:10px; border-top:1px solid #ccc; padding-top:10px;">
+                    {obs if obs else 'Sujeito a alteração sem aviso prévio.'}
                 </div>
-            </div>
+            </body>
+            </html>
             """
-            st.markdown(html_content, unsafe_allow_html=True)
             
-            # GUIA VISUAL DE IMPRESSÃO (PARA NÃO ESQUECER)
-            st.markdown("""
-            <div class="no-print" style="margin-top:20px; background:#e3f2fd; padding:15px; border-radius:8px; border:1px solid #90caf9;">
-                <h4 style="margin:0; color:#1565c0 !important;">📝 Como Salvar em PDF:</h4>
-                <ol style="margin-top:5px; color:#333;">
-                    <li>Clique no botão <b>Imprimir</b> acima ou aperte <b>Ctrl + P</b>.</li>
-                    <li>Em "Destino", escolha <b>Salvar como PDF</b>.</li>
-                    <li><b>IMPORTANTE:</b> Vá em "Mais definições" e marque a caixinha <b>☑️ Gráficos de segundo plano</b>.</li>
-                    <li>Clique em Salvar!</li>
-                </ol>
-            </div>
-            """, unsafe_allow_html=True)
+            # --- 3. MOSTRAR PREVIEW E BOTÃO ---
+            st.markdown("### Visualização Prévia:")
+            # Mostra uma versão simplificada na tela
+            st.markdown(f'<div class="preview-box">{html_template}</div>', unsafe_allow_html=True)
+            
+            # GERA O PDF
+            pdf_bytes = criar_pdf_binario(html_template)
+            
+            if pdf_bytes:
+                st.success("✅ PDF Gerado com sucesso!")
+                # BOTÃO DE DOWNLOAD REAL
+                st.download_button(
+                    label="📥 BAIXAR ARQUIVO PDF AGORA",
+                    data=pdf_bytes,
+                    file_name=f"Tabela_{cliente}_{data_hoje.replace('/','-')}.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+            else:
+                st.error("Erro ao gerar PDF. Verifique se instalou o 'xhtml2pdf'.")
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
