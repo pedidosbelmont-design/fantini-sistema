@@ -20,87 +20,101 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- FUNÇÃO MÁGICA: CRIAR THUMBNAIL (MINIATURA) ---
+# --- FUNÇÃO: THUMBNAIL (MINIATURA LEVE) ---
 def get_thumbnail_as_base64(file_path, size=(80, 80)):
-    """
-    Lê a imagem, REDIMENSIONA para ficar bem pequena (thumbnail)
-    e retorna o código para o HTML. Isso evita travar o navegador.
-    """
     if os.path.exists(file_path):
         try:
             img = Image.open(file_path)
-            # Converte para RGB (evita erro em PNG transparente)
-            if img.mode in ("RGBA", "P"): 
-                img = img.convert("RGB")
-            
-            # Força o tamanho pequeno (Thumbnail)
+            if img.mode in ("RGBA", "P"): img = img.convert("RGB")
             img.thumbnail(size)
-            
-            # Salva na memória
             buffered = io.BytesIO()
             img.save(buffered, format="JPEG", quality=85)
-            
-            # Gera código
             encoded = base64.b64encode(buffered.getvalue()).decode()
             return f"data:image/jpeg;base64,{encoded}"
         except Exception:
             return None
     return None
 
-# --- CSS A4 + IMPRESSÃO ---
+# --- CSS LIMPO E CORRIGIDO ---
 st.markdown("""
 <style>
-    .stApp { background-color: #525659; } /* Fundo cinza escuro tipo Acrobat Reader */
-    h1, h2, h3, p, div, span, label { color: #1c1e21 !important; }
+    /* 1. FUNDO GERAL UNIFORME (Corrige o meio a meio) */
+    .stApp {
+        background-color: #eaeff2; 
+    }
+    
+    /* Texto sempre escuro para leitura */
+    h1, h2, h3, h4, p, div, span, label, td, th {
+        color: #1c1e21 !important;
+    }
 
-    /* --- SIMULAÇÃO FOLHA A4 --- */
+    /* 2. FOLHA A4 FLUTUANTE */
     .folha-a4 {
         background-color: white;
         width: 210mm;
         min-height: 297mm;
-        margin: 20px auto;
+        margin: 40px auto; /* Centraliza na tela */
         padding: 15mm;
-        box-shadow: 0 0 15px rgba(0,0,0,0.5);
-        position: relative;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        border: 1px solid #d1d1d1;
     }
 
-    /* CABEÇALHO */
+    /* 3. CABEÇALHO (Com espaço para não sobrepor) */
     .header-tabela {
-        display: flex; justify-content: space-between; align-items: flex-end;
-        border-bottom: 2px solid #2c3e50; padding-bottom: 15px; margin-bottom: 20px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: flex-end;
+        border-bottom: 2px solid #2c3e50; 
+        padding-bottom: 15px; 
+        margin-bottom: 30px; /* Margem extra para empurrar a tabela */
     }
     .titulo-tabela { font-size: 20px; font-weight: bold; color: #2c3e50; margin: 0; text-transform: uppercase; }
     
-    /* TABELA */
+    /* 4. TABELA (Bem definida) */
     .tabela-produtos {
-        width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif;
+        width: 100%; 
+        border-collapse: collapse; 
+        font-family: 'Segoe UI', sans-serif;
+        margin-top: 20px;
     }
+    
     .tabela-produtos th {
-        background-color: #34495e !important; color: white !important;
-        padding: 8px 5px; text-align: left; font-size: 11px; text-transform: uppercase;
-        border-bottom: 2px solid #000;
-        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        background-color: #34495e !important; 
+        color: white !important;
+        padding: 10px; 
+        text-align: left; 
+        font-size: 11px; 
+        text-transform: uppercase;
+        border: 1px solid #34495e;
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact;
     }
+    
     .tabela-produtos td {
-        padding: 8px 5px; border-bottom: 1px solid #ddd; vertical-align: middle;
-        color: #333; font-size: 12px;
+        padding: 8px; 
+        border-bottom: 1px solid #ccc; 
+        vertical-align: middle;
+        font-size: 12px;
     }
+    
     .tabela-produtos tr:nth-child(even) {
         background-color: #f3f3f3 !important;
-        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact;
     }
 
-    /* THUMBNAILS NA TABELA */
+    /* IMAGEM */
     .thumb-img {
         width: 50px; height: 50px; object-fit: contain;
         border: 1px solid #eee; background: #fff; padding: 2px;
         display: block; margin: 0 auto;
     }
 
-    /* IMPRESSÃO PERFEITA */
+    /* 5. MODO IMPRESSÃO (Limpa tudo que não é papel) */
     @page { size: A4; margin: 0; }
     @media print {
         body { background-color: white; }
+        .stApp { background-color: white; }
         [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, .stButton, .stAlert, footer, .no-print {
             display: none !important;
         }
@@ -113,7 +127,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DADOS ---
+# --- DADOS ---
 def inicializar():
     if not os.path.exists(PASTA_IMAGENS): os.makedirs(PASTA_IMAGENS)
     if not os.path.exists(ARQUIVO_DB):
@@ -187,7 +201,7 @@ with st.sidebar:
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Tabela A4", "📝 Produtos", "⚙️ Ajustes"])
 
-# --- ABA 1: GERADOR A4 COM THUMBNAILS ---
+# --- ABA 1: GERADOR A4 ---
 with tab_gerador:
     df_filtrado = df.copy()
     if filtro_fabrica != "Todos":
@@ -225,21 +239,21 @@ with tab_gerador:
                 res = get_thumbnail_as_base64(path_logo_fantini, size=(200, 100))
                 if res: logo_b64 = res
 
-            # GERA LINHAS (TR) COM THUMBNAILS
-            html_rows = ""
+            # GERA LINHAS (TR)
+            # Usando lista e join para evitar erros de indentação do Python
+            linhas_html = []
+            
             for idx, row in itens_marcados.iterrows():
-                # 1. Pega Thumb do Produto
+                # 1. Pega Thumb
                 img_tag = ""
                 try:
                     nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
                     caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
-                    # Cria miniatura de 80x80 na hora
                     thumb_b64 = get_thumbnail_as_base64(caminho_img, size=(80, 80))
-                    
                     if thumb_b64:
                         img_tag = f"<img src='{thumb_b64}' class='thumb-img'>"
                     else:
-                        img_tag = "<span style='color:#ccc; font-size:10px; text-align:center; display:block;'>S/ FOTO</span>"
+                        img_tag = "<span style='color:#ccc; font-size:10px; display:block; text-align:center'>S/ FOTO</span>"
                 except:
                     img_tag = ""
 
@@ -247,38 +261,61 @@ with tab_gerador:
                 ean = f"<br><span style='font-size:10px; color:#777'>EAN: {row['barras']}</span>" if row['barras'] and str(row['barras']) != "nan" else ""
                 preco = row[tabela_selecionada]
 
-                # HTML COMPACTADO PARA NÃO DAR ERRO
-                html_rows += f"<tr><td style='text-align:center; width:60px;'>{img_tag}</td><td style='font-weight:bold; color:#555;'>{cod}</td><td><div style='font-weight:bold; font-size:12px;'>{row['nome']}</div>{ean}</td><td style='text-align:right; font-weight:bold; font-size:14px;'>R$ {preco:,.2f}</td></tr>"
+                # Linha da Tabela
+                linha = f"""
+                <tr>
+                    <td style='text-align:center; width:60px;'>{img_tag}</td>
+                    <td style='font-weight:bold; color:#555;'>{cod}</td>
+                    <td>
+                        <div style='font-weight:bold; font-size:12px;'>{row['nome']}</div>
+                        {ean}
+                    </td>
+                    <td style='text-align:right; font-weight:bold; font-size:14px;'>R$ {preco:,.2f}</td>
+                </tr>
+                """
+                linhas_html.append(linha)
+
+            # Junta todas as linhas
+            html_rows = "".join(linhas_html)
 
             # 2. MONTA A FOLHA A4
             data_hoje = datetime.now().strftime("%d/%m/%Y")
             tit_fab = f" - {filtro_fabrica}" if filtro_fabrica != "Todos" else ""
             logo_html = f'<img src="{logo_b64}" style="max-height:60px;">' if logo_b64 else '<h2>FANTINI</h2>'
+            cli_html = f'<div style="font-weight:bold; margin-top:5px;">Cliente: {cliente_nome}</div>' if cliente_nome else ''
+            obs_html = observacao if observacao else 'Sujeito a alteração sem aviso prévio.'
 
             html_final = f"""
 <div class="folha-a4">
-<div class="header-tabela">
-    <div>{logo_html}<div style="font-size:11px; margin-top:5px; color:#555;">Representação Comercial</div></div>
-    <div style="text-align:right;">
-        <div class="titulo-tabela">Tabela de Preços{tit_fab}</div>
-        <div style="font-size:13px;">Condição: <strong>{tabela_selecionada}</strong> | Data: {data_hoje}</div>
-        {f'<div style="font-weight:bold; margin-top:5px;">Cliente: {cliente_nome}</div>' if cliente_nome else ''}
+    <div class="header-tabela">
+        <div>
+            {logo_html}
+            <div style="font-size:11px; margin-top:5px; color:#555;">Representação Comercial</div>
+        </div>
+        <div style="text-align:right;">
+            <div class="titulo-tabela">Tabela de Preços{tit_fab}</div>
+            <div style="font-size:13px;">Condição: <strong>{tabela_selecionada}</strong> | Data: {data_hoje}</div>
+            {cli_html}
+        </div>
     </div>
-</div>
-<table class="tabela-produtos">
-    <thead>
-        <tr>
-            <th style="text-align:center;">Foto</th>
-            <th>Cód.</th>
-            <th>Descrição</th>
-            <th style="text-align:right;">Preço</th>
-        </tr>
-    </thead>
-    <tbody>{html_rows}</tbody>
-</table>
-<div style="margin-top:30px; border-top:1px solid #ccc; padding-top:5px; font-size:10px; text-align:center; color:#777;">
-    {observacao if observacao else 'Sujeito a alteração sem aviso prévio.'}
-</div>
+
+    <table class="tabela-produtos">
+        <thead>
+            <tr>
+                <th style="text-align:center;">Foto</th>
+                <th>Cód.</th>
+                <th>Descrição</th>
+                <th style="text-align:right;">Preço</th>
+            </tr>
+        </thead>
+        <tbody>
+            {html_rows}
+        </tbody>
+    </table>
+
+    <div style="margin-top:30px; border-top:1px solid #ccc; padding-top:5px; font-size:10px; text-align:center; color:#777;">
+        {obs_html}
+    </div>
 </div>
 """
             st.markdown(html_final, unsafe_allow_html=True)
