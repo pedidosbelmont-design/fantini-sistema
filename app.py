@@ -5,7 +5,7 @@ import time
 import io
 from datetime import datetime
 from PIL import Image
-from fpdf import FPDF # Nova biblioteca LEVE
+from fpdf import FPDF
 
 # --- 1. CONFIGURAÇÃO GERAL ---
 st.set_page_config(
@@ -20,14 +20,13 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- CSS PARA TELA ---
+# --- CSS VISUAL ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
     .preview-box {
-        background: white; padding: 20px; border-radius: 8px;
+        background: white; padding: 15px; border-radius: 8px;
         box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px;
-        font-family: Arial, sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -41,25 +40,25 @@ class PDF(FPDF):
             if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
         
         if logo_path:
-            self.image(logo_path, 10, 8, 33) # x, y, w
+            self.image(logo_path, 10, 8, 33)
         
         self.set_font('helvetica', 'B', 15)
-        self.cell(80) # Move para direita
+        self.cell(80)
         self.cell(30, 10, 'FANTINI REPRESENTAÇÕES', 0, 0, 'C')
-        self.ln(20) # Quebra de linha
+        self.ln(20)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('helvetica', 'I', 8)
         self.cell(0, 10, f'Pagina {self.page_no()}/{{nb}}', 0, 0, 'C')
 
-def gerar_pdf_fpdf(df_itens, cliente, obs, tabela_col):
+def gerar_pdf_fpdf(df_itens, cliente, obs, tabela_col, df_completo):
     pdf = PDF()
     pdf.alias_nb_pages()
     pdf.add_page()
     pdf.set_font("helvetica", size=12)
     
-    # Cabeçalho do Pedido
+    # Cabeçalho Pedido
     pdf.set_font("helvetica", 'B', 12)
     pdf.cell(0, 10, f"TABELA DE PREÇOS: {tabela_col}", ln=True)
     pdf.set_font("helvetica", size=10)
@@ -67,51 +66,49 @@ def gerar_pdf_fpdf(df_itens, cliente, obs, tabela_col):
     pdf.cell(0, 5, f"Data: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
     pdf.ln(5)
     
-    # Configuração da Tabela
-    # Colunas: Foto(20mm), Cód(25mm), Produto(90mm), Preço(30mm)
-    
+    # Tabela
     with pdf.table() as table:
-        # Cabeçalho da Tabela
         row = table.row()
         row.cell("FOTO")
         row.cell("CÓDIGO")
         row.cell("PRODUTO")
         row.cell("PREÇO")
         
-        # Linhas
         for idx, item in df_itens.iterrows():
             row = table.row()
             
-            # 1. Foto (Trick para inserir imagem na célula)
-            nome_arq = df.loc[df["codigo"] == item["codigo"], "imagem"].values[0]
-            caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+            # 1. Imagem
+            # Busca no DF completo para garantir que acha o nome do arquivo
+            try:
+                nome_arq = df_completo.loc[df_completo["codigo"] == item["codigo"], "imagem"].values[0]
+                caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+                if os.path.exists(caminho_img):
+                    row.cell(img=caminho_img, img_fill_width=True)
+                else:
+                    row.cell("S/ FOTO")
+            except:
+                row.cell("-")
             
-            # Se a imagem existe, inserimos. Se não, deixamos vazio.
-            if os.path.exists(caminho_img):
-                row.cell(img=caminho_img, img_fill_width=True)
-            else:
-                row.cell("S/ FOTO")
-            
-            # 2. Dados Texto
+            # 2. Código
             cod_str = str(item['codigo'])
             if "AUTO-" in cod_str: cod_str = ""
             row.cell(cod_str)
             
-            # 3. Nome + EAN
-            ean = item['barras'] if str(item['barras']) != "nan" else ""
-            desc = f"{item['nome']}\nEAN: {ean}"
+            # 3. Descrição (Correção do erro 'barras')
+            # Garante que 'barras' existe, se não, usa vazio
+            ean_val = item['barras'] if 'barras' in item and str(item['barras']) != "nan" else ""
+            desc = f"{item['nome']}\nEAN: {ean_val}"
             row.cell(desc)
             
             # 4. Preço
             preco = f"R$ {item[tabela_col]:,.2f}"
             row.cell(preco, align='R')
             
-    # Rodapé Obs
     pdf.ln(10)
     pdf.set_font("helvetica", 'I', 8)
     pdf.multi_cell(0, 5, f"Obs: {obs if obs else 'Sujeito a alteração sem aviso prévio.'}")
     
-    return pdf.output(dest='S') # Retorna os bytes do PDF
+    return pdf.output(dest='S')
 
 # --- INICIALIZAÇÃO ---
 if not os.path.exists(PASTA_IMAGENS): os.makedirs(PASTA_IMAGENS)
@@ -139,7 +136,7 @@ with st.sidebar:
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Exportar PDF", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR PDF (FPDF2) ---
+# --- ABA 1: GERADOR PDF ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -150,12 +147,15 @@ with tab_gerador:
         st.write("Selecione os produtos:")
         df_show.insert(0, "Sel", False)
         
+        # AQUI ESTAVA O ERRO: Adicionei "barras" na lista de colunas
         edited = st.data_editor(
-            df_show[["Sel", "codigo", "nome", tabela_ativa]],
+            df_show[["Sel", "codigo", "nome", "barras", tabela_ativa]], 
             hide_index=True,
-            column_config={"Sel": st.column_config.CheckboxColumn("", default=False),
-                           tabela_ativa: st.column_config.NumberColumn("Preço", format="R$ %.2f")},
-            disabled=["codigo", "nome", tabela_ativa],
+            column_config={
+                "Sel": st.column_config.CheckboxColumn("", default=False),
+                tabela_ativa: st.column_config.NumberColumn("Preço", format="R$ %.2f")
+            },
+            disabled=["codigo", "nome", "barras", tabela_ativa],
             use_container_width=True
         )
         
@@ -167,19 +167,15 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            # Mostra preview simples na tela (HTML básico)
-            st.markdown("### Prévia dos Itens:")
+            st.markdown("### Prévia:")
             for i, row in selecionados.iterrows():
-                st.caption(f"• {row['codigo']} - {row['nome']} - R$ {row[tabela_ativa]:,.2f}")
+                st.caption(f"• {row['nome']} - R$ {row[tabela_ativa]:,.2f}")
             
             st.markdown("---")
-            
-            # GERAÇÃO DO PDF REAL
             try:
-                # Chama a função que cria o binário do PDF
-                pdf_bytes = gerar_pdf_fpdf(selecionados, cliente, obs, tabela_ativa)
+                # Passamos o 'df' completo para buscar as imagens corretamente
+                pdf_bytes = gerar_pdf_fpdf(selecionados, cliente, obs, tabela_ativa, df)
                 
-                # BOTÃO DE DOWNLOAD
                 st.download_button(
                     label="📥 BAIXAR PDF AGORA",
                     data=bytes(pdf_bytes),
