@@ -16,37 +16,41 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- CSS VISUAL (TELA) ---
+# --- CSS PARA O PREVIEW NA TELA ---
 st.markdown("""
 <style>
     .stApp { background-color: #eaeff2; }
     .preview-card {
-        background: white; padding: 15px; border-radius: 8px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 10px;
-        display: flex; align-items: center; border-left: 5px solid #2c3e50;
+        background: white; padding: 10px 15px; border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 8px;
+        display: flex; align-items: center; border-left: 4px solid #2c3e50;
     }
-    .preview-img { width: 50px; height: 50px; object-fit: contain; margin-right: 15px; border: 1px solid #eee; }
+    .preview-img { width: 40px; height: 40px; object-fit: contain; margin-right: 15px; border: 1px solid #eee; border-radius: 4px;}
     .preview-info { flex-grow: 1; }
-    .preview-price { font-weight: bold; color: #27ae60; font-size: 16px; }
+    .preview-title { font-weight: bold; font-size: 14px; color: #333; }
+    .preview-code { font-size: 11px; color: #777; }
+    .preview-price { font-weight: bold; color: #27ae60; font-size: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CLASSE PDF PROFISSIONAL ---
+# --- 2. CLASSE PDF (AJUSTADA: LOGO NÃO CORTA MAIS) ---
 class PDF(FPDF):
     def header(self):
-        # Logo
+        # 1. LOGO (Ajustei X=15 para não cortar)
         logo_path = None
         for ext in ["png", "jpg"]:
             if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
         
         if logo_path:
-            self.image(logo_path, 10, 8, 30) # Logo pequena à esquerda
+            # x=15 (mais para direita), y=10, w=30 (largura)
+            self.image(logo_path, 15, 10, 30) 
         
-        # Título da Empresa
-        self.set_font('helvetica', 'B', 14)
-        self.cell(40) # Pula a logo
+        # 2. TÍTULO (Alinhado com a nova posição da logo)
+        self.set_y(15) # Alinha verticalmente com o meio da logo
+        self.set_font('helvetica', 'B', 16)
+        self.cell(50) # Empurra para direita (pula a logo)
         self.cell(0, 10, 'FANTINI REPRESENTAÇÕES', ln=False, align='L')
-        self.ln(15)
+        self.ln(25) # Espaço após o cabeçalho
 
     def footer(self):
         self.set_y(-15)
@@ -58,68 +62,69 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # --- CABEÇALHO DO DOCUMENTO ---
-    pdf.set_fill_color(240, 240, 240) # Fundo cinza claro
-    pdf.rect(10, 25, 190, 25, 'F') # Caixa de fundo
+    # --- BLOCO CINZA DE INFORMAÇÕES ---
+    pdf.set_fill_color(245, 245, 245) # Cinza bem clarinho e elegante
+    # x=10, y=35, w=190, h=25
+    pdf.rect(10, 35, 190, 25, 'F') 
     
-    pdf.set_y(28)
+    pdf.set_y(38)
+    pdf.set_x(15)
     pdf.set_font("helvetica", 'B', 10)
-    pdf.cell(10)
     pdf.cell(0, 5, f"TABELA: {tabela_col.upper()}", ln=True)
     
+    pdf.set_x(15)
     pdf.set_font("helvetica", '', 10)
-    pdf.cell(10)
     pdf.cell(0, 5, f"CLIENTE: {cliente}", ln=True)
     
-    pdf.cell(10)
+    pdf.set_x(15)
     pdf.cell(0, 5, f"DATA: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(10)
+    pdf.ln(10) # Espaço antes da tabela
     
-    # --- CONFIGURAÇÃO DA TABELA ---
-    # Colunas: Foto(12%), Cód(18%), Produto(50%), Preço(20%)
-    # Isso impede que a tabela fique torta
-    col_widths = (12, 23, 105, 50) 
+    # --- TABELA DE PRODUTOS ---
+    # Definição exata das larguras (Soma ~190mm)
+    # Foto: 15mm | Cód: 25mm | Descrição: 110mm | Preço: 40mm
+    col_widths = (15, 25, 110, 40) 
     
-    # Cabeçalho da Tabela
-    with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"),line_height=6) as table:
+    with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"), line_height=7) as table:
+        # CABEÇALHO
         row = table.row()
-        row.cell("FOTO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
-        row.cell("CÓDIGO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
-        row.cell("DESCRIÇÃO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
-        row.cell("PREÇO", style=FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)))
+        estilo_header = FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)) # Azul Escuro
+        row.cell("FOTO", style=estilo_header)
+        row.cell("CÓDIGO", style=estilo_header)
+        row.cell("DESCRIÇÃO", style=estilo_header)
+        row.cell("PREÇO", style=estilo_header)
         
-        # Itens
+        # LINHAS DOS ITENS
         pdf.set_font("helvetica", size=9)
         
         for idx, item in df_itens.iterrows():
             row = table.row()
             
-            # 1. FOTO (Controlada)
+            # 1. FOTO
             try:
                 nome_arq = df_completo.loc[df_completo["codigo"] == item["codigo"], "imagem"].values[0]
                 caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
                 if os.path.exists(caminho_img):
-                    # img_fill_width=True força a imagem a respeitar a coluna pequena (12%)
                     row.cell(img=caminho_img, img_fill_width=True)
                 else:
-                    row.cell("-", align="C")
+                    row.cell("-")
             except:
-                row.cell("-", align="C")
+                row.cell("-")
 
             # 2. CÓDIGO
             cod_str = str(item['codigo']).replace("AUTO-", "")
-            row.cell(cod_str, align="L")
+            row.cell(cod_str)
             
-            # 3. PRODUTO + EAN
+            # 3. DESCRIÇÃO
             ean = item['barras'] if 'barras' in item and str(item['barras']) != "nan" else ""
             desc_text = f"{item['nome']}\nEAN: {ean}"
             row.cell(desc_text)
             
-            # 4. PREÇO
+            # 4. PREÇO (Negrito)
             preco = f"R$ {item[tabela_col]:,.2f}"
-            row.cell(preco, style=FontFace(emphasis="BOLD"), align="R")
+            row.cell(preco, style=FontFace(emphasis="BOLD"))
 
-    # --- RODAPÉ ---
+    # --- RODAPÉ OBS ---
     pdf.ln(5)
     pdf.set_font("helvetica", 'I', 8)
     pdf.multi_cell(0, 5, f"Observações: {obs if obs else 'Validade conforme estoque.'}")
@@ -152,7 +157,7 @@ with st.sidebar:
 
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Exportar PDF", "📝 Cadastro", "⚙️ Tabelas"])
 
-# --- ABA 1: GERADOR PDF (PREVIEW NA TELA + PDF REAL) ---
+# --- ABA 1: GERADOR ---
 with tab_gerador:
     if not tabela_ativa:
         st.warning("Crie tabelas primeiro.")
@@ -182,18 +187,17 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            st.markdown("### 2. Confira a Prévia:")
+            st.markdown("### 2. Confira:")
             
-            # PREVIEW BONITO NA TELA
+            # PREVIEW (MELHORADO)
             for i, row in selecionados.iterrows():
-                # Tenta pegar imagem para o preview
+                # HTML Seguro para Imagem
                 img_html = ""
                 try:
                     nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
-                    caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
-                    if os.path.exists(caminho_img):
-                        # Converte para base64 só para mostrar na tela
-                        with open(caminho_img, "rb") as f:
+                    path = os.path.join(PASTA_IMAGENS, str(nome_arq))
+                    if os.path.exists(path):
+                        with open(path, "rb") as f:
                             b64 = base64.b64encode(f.read()).decode()
                         img_html = f'<img src="data:image/jpeg;base64,{b64}" class="preview-img">'
                 except: pass
@@ -202,8 +206,8 @@ with tab_gerador:
                 <div class="preview-card">
                     {img_html}
                     <div class="preview-info">
-                        <div style="font-weight:bold;">{row['nome']}</div>
-                        <div style="font-size:12px; color:#666;">Cód: {row['codigo']}</div>
+                        <div class="preview-title">{row['nome']}</div>
+                        <div class="preview-code">{row['codigo']}</div>
                     </div>
                     <div class="preview-price">R$ {row[tabela_ativa]:,.2f}</div>
                 </div>
@@ -211,13 +215,11 @@ with tab_gerador:
             
             st.markdown("---")
             try:
-                # GERA O PDF
                 pdf_bytes = gerar_pdf_final(selecionados, cliente, obs, tabela_ativa, df)
-                
                 st.download_button(
-                    label="📥 BAIXAR PDF (FORMATADO)",
+                    label="📥 BAIXAR PDF (FINAL)",
                     data=bytes(pdf_bytes),
-                    file_name=f"Tabela_{cliente}.pdf",
+                    file_name=f"Tabela_{cliente if cliente else 'Geral'}.pdf",
                     mime="application/pdf",
                     type="primary",
                     use_container_width=True
