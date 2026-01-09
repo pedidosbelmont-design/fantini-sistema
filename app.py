@@ -3,12 +3,13 @@ import pandas as pd
 import os
 import time
 import base64
+from datetime import datetime
 
-# --- 1. CONFIGURAÇÃO VISUAL ---
+# --- 1. CONFIGURAÇÃO ---
 st.set_page_config(
     layout="wide", 
-    page_title="Fantini Dynamic System", 
-    page_icon="♾️",
+    page_title="Fantini Tabela", 
+    page_icon="📄",
     initial_sidebar_state="expanded"
 )
 
@@ -17,84 +18,93 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- MAPA DE LOGOS DAS FÁBRICAS ---
-# Aqui associamos o Nome da Fábrica ao arquivo na pasta static
 LOGOS_FABRICANTES = {
     "Vinagre Belmont": "belmont.png",
     "Serve Sempre": "serve.png"
 }
 
-# --- FUNÇÃO AUXILIAR PARA IMAGEM NO HTML ---
 def get_img_as_base64(file_path):
-    """Transforma a imagem em código para poder usar dentro do HTML/CSS"""
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
             data = f.read()
         return base64.b64encode(data).decode()
     return None
 
-# --- CSS BLINDADO ---
+# --- CSS PARA IMPRESSÃO E TABELA ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f4f7f6; }
-    h1, h2, h3, p, div, span, label { color: #2c3e50 !important; }
-    
-    /* Inputs */
-    input[type="text"], input[type="number"] {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid #ccc !important;
-    }
-    div[data-baseweb="select"] > div {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    /* Card Style */
-    .produto-card {
-        background-color: #ffffff;
+    .stApp { background-color: #f5f5f5; }
+    h1, h2, h3, p, div, span, label { color: #000 !important; }
+
+    /* Estilo da Folha de Papel (Tabela Gerada) */
+    .folha-tabela {
+        background-color: white;
+        padding: 30px;
         border: 1px solid #ddd;
-        border-radius: 12px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        margin-top: 20px;
+    }
+
+    /* Tabela HTML Bonita */
+    .tabela-clean {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 14px;
+    }
+    .tabela-clean th {
+        background-color: #2c3e50;
+        color: white !important;
         padding: 10px;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        height: 100%;
-        position: relative;
+        text-align: left;
     }
-    .produto-card:hover { transform: translateY(-3px); border-color: #2980b9; }
-    
-    .nome-produto {
-        font-family: 'Segoe UI', sans-serif; font-size: 13px; font-weight: 700;
-        color: #34495e !important; height: 38px; overflow: hidden;
-        margin-top: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    .tabela-clean td {
+        border-bottom: 1px solid #ddd;
+        padding: 8px;
+        color: #333 !important;
     }
-    .preco-destaque { font-size: 20px; font-weight: 800; color: #27ae60 !important; margin: 5px 0; }
-    
-    /* Tags */
-    .tag-tabela {
-        background-color: #ecf0f1; color: #7f8c8d !important; font-size: 10px;
-        padding: 4px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase;
-    }
-    .tag-codigo {
-        font-size: 10px; color: #bdc3c7 !important; margin-bottom: 2px; display: block;
+    .tabela-clean tr:nth-child(even) {
+        background-color: #f9f9f9;
     }
     
-    /* Logo da Fábrica no Card */
-    .logo-fabrica-card {
-        max-height: 25px; /* Altura fixa pequena */
-        max-width: 80px;
+    /* Imagem na tabela */
+    .thumb-tabela {
+        width: 40px;
+        height: 40px;
         object-fit: contain;
     }
-    
-    [data-testid="stSidebar"] img { display: block; margin-left: auto; margin-right: auto; margin-bottom: 20px; }
-    div[data-testid="stImage"] { display: flex; justify-content: center; }
-    header {visibility: visible !important; background-color: rgba(0,0,0,0) !important;}
-    .stDecoration { display: none; }
-    .block-container {padding-top: 3rem;}
+
+    /* Cabeçalho da Folha */
+    .header-folha {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #2c3e50;
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+
+    /* Ocultar elementos do Streamlit na hora de imprimir (Ctrl+P) */
+    @media print {
+        [data-testid="stSidebar"], 
+        [data-testid="stHeader"], 
+        .no-print {
+            display: none !important;
+        }
+        .folha-tabela {
+            box-shadow: none;
+            border: none;
+            margin: 0;
+            padding: 0;
+        }
+        .block-container {
+            padding: 0 !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. LÓGICA DE DADOS ---
+# --- 2. FUNÇÕES ---
 def inicializar():
     if not os.path.exists(PASTA_IMAGENS): os.makedirs(PASTA_IMAGENS)
     if not os.path.exists(ARQUIVO_DB):
@@ -102,36 +112,16 @@ def inicializar():
 
 def carregar_dados(): 
     df = pd.read_csv(ARQUIVO_DB)
-    if "fabricante" not in df.columns:
-        df["fabricante"] = "Geral"
-        salvar_dados(df)
+    if "fabricante" not in df.columns: df["fabricante"] = "Geral"; salvar_dados(df)
     return df
 
 def salvar_dados(df): df.to_csv(ARQUIVO_DB, index=False)
 
-def criar_categoria(nome):
-    df = carregar_dados()
-    if nome not in df.columns:
-        df[nome] = 0.0
-        salvar_dados(df)
-        return True, "Categoria criada!"
-    return False, "Categoria já existe."
-
-def excluir_categoria(nome):
-    df = carregar_dados()
-    if nome in df.columns and nome not in COLUNAS_FIXAS:
-        df = df.drop(columns=[nome])
-        salvar_dados(df)
-        return True, "Removida."
-    return False, "Erro."
-
 def salvar_produto(codigo, barras, nome, fabricante, imagem_file, precos_dict, modo_edicao=False):
     df = carregar_dados()
-    if not codigo:
-        if modo_edicao: return False, "Erro de referência."
-        else: codigo = f"AUTO-{int(time.time())}"
+    if not codigo: codigo = f"AUTO-{int(time.time())}"
     
-    if not modo_edicao and codigo in df["codigo"].values: return False, "⚠️ Código já existe!"
+    if not modo_edicao and codigo in df["codigo"].values: return False, "Cód existe!"
 
     nome_imagem = "sem_foto.png"
     if modo_edicao:
@@ -151,270 +141,225 @@ def salvar_produto(codigo, barras, nome, fabricante, imagem_file, precos_dict, m
     df = pd.concat([df, pd.DataFrame([novo_item])], ignore_index=True)
     df = df.fillna(0)
     salvar_dados(df)
-    return True, "Salvo com sucesso!"
+    return True, "Salvo!"
 
 def excluir_produto(codigo):
     df = carregar_dados()
     df = df[df["codigo"] != codigo]
     salvar_dados(df)
 
-@st.dialog("Ficha do Produto")
-def mostrar_detalhes(row, img_path, colunas_precos):
-    c1, c2 = st.columns([1, 1.5])
-    with c1:
-        if os.path.exists(img_path): st.image(img_path, use_container_width=True)
-        else: st.text("Sem foto")
-        
-        # Mostra logo da fabrica no detalhe também
-        arq_logo = LOGOS_FABRICANTES.get(row['fabricante'])
-        if arq_logo:
-            caminho_logo = os.path.join(PASTA_IMAGENS, arq_logo)
-            if os.path.exists(caminho_logo):
-                st.image(caminho_logo, width=100)
-            else:
-                st.caption(f"Fab: {row['fabricante']}")
-        else:
-            st.caption(f"Fab: {row['fabricante']}")
+def criar_categoria(nome):
+    df = carregar_dados()
+    if nome not in df.columns: df[nome] = 0.0; salvar_dados(df); return True, "Criado!"
+    return False, "Existe."
 
-        if row['barras'] and str(row['barras']) != "nan":
-            st.markdown(f"**EAN:** `{row['barras']}`")
+def excluir_categoria(nome):
+    df = carregar_dados()
+    if nome in df.columns and nome not in COLUNAS_FIXAS: df = df.drop(columns=[nome]); salvar_dados(df); return True, "Removida."
+    return False, "Erro."
 
-    with c2:
-        st.subheader(row['nome'])
-        st.divider()
-        st.markdown("📋 **Tabela de Preços:**")
-        html = "| Categoria | Preço |\n| :--- | :--- |\n"
-        for col in colunas_precos:
-            html += f"| {col} | **R$ {row[col]:,.2f}** |\n"
-        st.markdown(html)
-
-# --- 3. APP PRINCIPAL ---
+# --- 3. APP ---
 inicializar()
-
-if "edit_codigo" not in st.session_state:
-    st.session_state["edit_codigo"] = None
+if "edit_codigo" not in st.session_state: st.session_state["edit_codigo"] = None
 
 df = carregar_dados()
 colunas_de_preco = [c for c in df.columns if c not in COLUNAS_FIXAS]
 
-# SIDEBAR
+# SIDEBAR (FILTROS)
 with st.sidebar:
-    # Busca Logo da Fantini
     caminhos_possiveis = [os.path.join(PASTA_IMAGENS, x) for x in ["logo.png", "logo.jpg", "Logo.png"]]
     logo_encontrado = next((c for c in caminhos_possiveis if os.path.exists(c)), None)
-    
     if logo_encontrado: st.image(logo_encontrado, use_container_width=True)
-    else: st.header("FANTINI")
     
-    st.divider()
-    st.header("🏭 Fabricante")
-    filtro_fabrica = st.radio("Filtrar Vitrine:", ["Todos"] + EMPRESAS)
-    st.divider()
+    st.header("1. Seleção")
+    filtro_fabrica = st.selectbox("Fabricante:", ["Todos"] + EMPRESAS)
     
-    tabela_ativa = None
+    tabela_selecionada = None
     if colunas_de_preco:
-        st.header("💲 Tabela de Preço")
-        tabela_ativa = st.radio("Visualizar:", colunas_de_preco)
-    else: st.warning("Crie tabelas na aba Configurações.")
+        tabela_selecionada = st.selectbox("Tabela de Preço:", colunas_de_preco)
+    
+    st.divider()
+    st.info("💡 Vá na aba 'Gerador' para criar o PDF.")
 
 # TABS
-st.title("Fantini Dynamic OS")
-tab_vitrine, tab_novo, tab_config = st.tabs(["💎 Vitrine", "📝 Gerenciar Produtos", "⚙️ Configurações"])
+tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Gerador de Tabela", "📝 Cadastro", "⚙️ Ajustes"])
 
-# ABA VITRINE
-with tab_vitrine:
-    df_vitrine = df.copy()
+# ==============================================================================
+# ABA 1: GERADOR DE TABELA (O CORAÇÃO DO SISTEMA AGORA)
+# ==============================================================================
+with tab_gerador:
+    st.markdown("### Selecione os produtos para a tabela")
+    
+    # 1. PREPARAR DADOS PARA SELEÇÃO
+    df_filtrado = df.copy()
     if filtro_fabrica != "Todos":
-        df_vitrine = df_vitrine[df_vitrine["fabricante"] == filtro_fabrica]
-
-    if df_vitrine.empty:
-        if df.empty: st.info("Cadastre produtos.")
-        else: st.warning(f"Sem produtos de {filtro_fabrica}.")
-    elif not colunas_de_preco:
-        st.info("Cadastre tabelas.")
+        df_filtrado = df_filtrado[df_filtrado["fabricante"] == filtro_fabrica]
+    
+    if df_filtrado.empty:
+        st.warning("Nenhum produto encontrado.")
+    elif not tabela_selecionada:
+        st.warning("Crie uma tabela de preços na aba Ajustes.")
     else:
-        st.markdown(f"Mostrando **{filtro_fabrica}** na tabela **{tabela_ativa}**")
-        colunas = st.columns(6) 
+        # Adiciona coluna de Checkbox
+        df_filtrado.insert(0, "Selecionar", False)
         
-        for idx, row in df_vitrine.iterrows():
-            with colunas[idx % 6]:
-                img_path = os.path.join(PASTA_IMAGENS, str(row["imagem"]))
-                preco_show = row[tabela_ativa] if tabela_ativa else 0.0
+        # Mostra Tabela Editável
+        colunas_visiveis = ["Selecionar", "codigo", "nome", "fabricante", tabela_selecionada]
+        
+        # O data_editor permite marcar os checkboxes
+        df_edicao = st.data_editor(
+            df_filtrado[colunas_visiveis],
+            hide_index=True,
+            column_config={
+                "Selecionar": st.column_config.CheckboxColumn("Incluir?", default=False),
+                tabela_selecionada: st.column_config.NumberColumn("Preço", format="R$ %.2f"),
+                "imagem": st.column_config.ImageColumn("Foto")
+            },
+            disabled=["codigo", "nome", "fabricante", tabela_selecionada], # Trava edição de dados
+            use_container_width=True
+        )
+        
+        # 2. BOTÃO GERAR
+        st.markdown("---")
+        col_input, col_btn = st.columns([3, 1])
+        cliente_nome = col_input.text_input("Nome do Cliente (Opcional):", placeholder="Ex: Supermercado Central")
+        
+        # Lógica para pegar os itens marcados
+        itens_selecionados = df_edicao[df_edicao["Selecionar"] == True]
+        
+        if not itens_selecionados.empty:
+            st.success(f"{len(itens_selecionados)} produtos selecionados.")
+            
+            # --- ÁREA DA FOLHA DE PAPEL (PREVIEW) ---
+            with st.container(border=True):
+                # Conversão de logo Fantini para Base64 (para aparecer na impressão)
+                logo_b64 = ""
+                if logo_encontrado:
+                    logo_b64 = get_img_as_base64(logo_encontrado)
                 
-                # --- LÓGICA PARA RENDERIZAR LOGO PEQUENA ---
-                nome_arq_logo = LOGOS_FABRICANTES.get(row['fabricante'])
-                html_logo = f"<span class='tag-tabela'>{row['fabricante'][:10]}</span>" # Fallback texto
-                
-                if nome_arq_logo:
-                    path_full_logo = os.path.join(PASTA_IMAGENS, nome_arq_logo)
-                    b64_logo = get_img_as_base64(path_full_logo)
-                    if b64_logo:
-                        # Se achou a imagem, cria a tag HTML img
-                        html_logo = f"<img src='data:image/png;base64,{b64_logo}' class='logo-fabrica-card'>"
-                
-                # Código (esconde se for auto)
-                display_cod = f"#{row['codigo']}" if not str(row['codigo']).startswith("AUTO-") else ""
+                # Montagem do HTML
+                html_rows = ""
+                for idx, row in itens_selecionados.iterrows():
+                    # Busca imagem original
+                    img_row_path = os.path.join(PASTA_IMAGENS, df.loc[df["codigo"] == row["codigo"], "imagem"].values[0])
+                    img_b64 = get_img_as_base64(img_row_path)
+                    
+                    img_tag = ""
+                    if img_b64:
+                        img_tag = f"<img src='data:image/png;base64,{img_b64}' class='thumb-tabela'>"
+                    
+                    # Preço
+                    preco = row[tabela_selecionada]
+                    
+                    html_rows += f"""
+                    <tr>
+                        <td style='text-align:center'>{img_tag}</td>
+                        <td>{row['codigo']}</td>
+                        <td><strong>{row['nome']}</strong></td>
+                        <td style='text-align:right'><strong>R$ {preco:,.2f}</strong></td>
+                    </tr>
+                    """
 
-                with st.container(border=True):
-                    # Cabeçalho do Card: Logo Fabrica (esq) | Tabela (dir)
-                    st.markdown(f"""
-                        <div style='display:flex; justify-content:space-between; align-items:center; height:30px;'>
-                             {html_logo}
-                             <span class='tag-tabela'>{tabela_ativa}</span>
+                # Data atual
+                data_hoje = datetime.now().strftime("%d/%m/%Y")
+                
+                # HTML COMPLETO
+                html_tabela = f"""
+                <div class="folha-tabela">
+                    <div class="header-folha">
+                        <div>
+                            <img src="data:image/png;base64,{logo_b64}" style="max-height:60px;">
+                            <div style="font-size:12px; margin-top:5px; color:#555 !important;">Representação Comercial</div>
                         </div>
-                    """, unsafe_allow_html=True)
+                        <div style="text-align:right;">
+                            <h3 style="margin:0;">TABELA DE PREÇOS</h3>
+                            <div style="font-size:14px;">Condição: <strong>{tabela_selecionada}</strong></div>
+                            <div style="font-size:14px;">Data: {data_hoje}</div>
+                            <div style="font-size:16px; margin-top:5px; color:#2c3e50 !important;">{cliente_nome}</div>
+                        </div>
+                    </div>
                     
-                    if display_cod:
-                        st.markdown(f"<span class='tag-codigo'>{display_cod}</span>", unsafe_allow_html=True)
+                    <table class="tabela-clean">
+                        <thead>
+                            <tr>
+                                <th width="50px">Foto</th>
+                                <th width="100px">Cód.</th>
+                                <th>Produto</th>
+                                <th width="120px" style="text-align:right">Preço Unit.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {html_rows}
+                        </tbody>
+                    </table>
                     
-                    if os.path.exists(img_path): st.image(img_path, width=100) 
-                    else: st.text("S/ Imagem")
+                    <div style="margin-top:30px; border-top:1px solid #ddd; padding-top:10px; font-size:11px; text-align:center; color:#777 !important;">
+                        Documento gerado pelo Sistema Fantini. Sujeito a alteração sem aviso prévio.
+                    </div>
+                </div>
+                """
+                
+                st.markdown(html_tabela, unsafe_allow_html=True)
+                
+                st.info("🖨️ Para enviar: Pressione **Ctrl + P** e escolha 'Salvar como PDF'.")
 
-                    st.markdown(f"""
-                        <div class='nome-produto'>{row['nome']}</div>
-                        <div class='preco-destaque'>R$ {preco_show:,.2f}</div>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button("Ver Detalhes", key=f"btn_{row['codigo']}"):
-                        mostrar_detalhes(row, img_path, colunas_de_preco)
-
-
-
-# ABA CONFIG
-# ABA CONFIG (CORRIGIDA)
-with tab_config:
-    st.header("Gerenciar Tabelas")
-    c1, c2 = st.columns(2)
-    # ABA GERENCIAR (CORRIGIDA)
-with tab_novo:
-    col_cad, col_search = st.columns([1.5, 1])
-    
-    # --- COLUNA DE BUSCA ---
-    with col_search:
-        st.subheader("🔎 Buscar")
-        df_view = carregar_dados()
-        if not df_view.empty:
-            df_view['codigo'] = df_view['codigo'].astype(str)
-            lista_produtos = df_view["codigo"] + " | " + df_view["nome"]
-            escolha = st.selectbox("Editar:", ["Selecione..."] + list(lista_produtos))
-            if st.button("Carregar Edição", type="primary"):
-                if escolha != "Selecione...":
-                    st.session_state["edit_codigo"] = escolha.split(" | ")[0]
-                    st.rerun()
-    
-    # --- COLUNA DE CADASTRO ---
-    with col_cad:
-        codigo_em_edicao = st.session_state["edit_codigo"]
-        dados_edicao = None
-        
-        if codigo_em_edicao:
+# ==============================================================================
+# ABA 2: CADASTRO (IGUAL AO ANTERIOR, MAS COMPACTO)
+# ==============================================================================
+with tab_cadastro:
+    c1, c2 = st.columns([2, 1])
+    with c2:
+        st.markdown("##### Buscar")
+        if not df.empty:
             df['codigo'] = df['codigo'].astype(str)
-            filtro = df[df["codigo"] == str(codigo_em_edicao)]
-            if not filtro.empty: 
-                dados_edicao = filtro.iloc[0]
-        
-        # Cabeçalho dinâmico
-        if dados_edicao is not None:
-            st.subheader(f"✏️ Editando: {dados_edicao['nome']}")
-            if st.button("❌ Cancelar"): 
-                st.session_state["edit_codigo"] = None
-                st.rerun()
-        else: 
-            st.subheader("➕ Novo Produto")
+            opts = df["codigo"] + " | " + df["nome"]
+            sel = st.selectbox("Editar:", ["Selecione..."] + list(opts))
+            if st.button("Carregar", use_container_width=True):
+                if sel != "Selecione...": st.session_state["edit_codigo"] = sel.split(" | ")[0]; st.rerun()
 
-        with st.container(border=True):
-            # Carregar valores (com proteção None)
-            cod_val = dados_edicao["codigo"] if dados_edicao is not None else ""
-            barras_val = dados_edicao["barras"] if dados_edicao is not None else ""
-            nome_val = dados_edicao["nome"] if dados_edicao is not None else ""
-            
-            # Index do Fabricante
-            fab_index = 0
-            if dados_edicao is not None and dados_edicao["fabricante"] in EMPRESAS:
-                fab_index = EMPRESAS.index(dados_edicao["fabricante"])
-
-            # Limpa visualmente se for código automático
-            if str(cod_val).startswith("AUTO-"): 
-                cod_val = ""
-
-            # --- CAMPOS DO FORMULÁRIO ---
-            fabricante = st.selectbox("Fabricante *", EMPRESAS, index=fab_index)
-            
-            c_cod, c_barras = st.columns(2)
-            codigo = c_cod.text_input("Código Interno (Opcional)", value=cod_val, disabled=(dados_edicao is not None))
-            barras = c_barras.text_input("Cód. Barras (Opcional)", value=barras_val)
-            
-            nome = st.text_input("Nome do Produto *", value=nome_val)
-            f_img = st.file_uploader("Imagem", type=['jpg','png'])
-            
-            if dados_edicao is not None and not f_img: 
-                st.caption(f"Imagem atual: {dados_edicao['imagem']}")
-            
-            st.divider()
-            
-            # --- TABELAS DE PREÇO ---
-            if colunas_de_preco:
-                st.write("💰 **Preços:**")
-                precos_input = {}
-                for col in colunas_de_preco:
-                    # Pega valor se existir, senão 0.0
-                    val = float(dados_edicao[col]) if dados_edicao is not None else 0.0
-                    precos_input[col] = st.number_input(f"{col} (R$)", value=val)
-                
-                c_btn1, c_btn2 = st.columns(2)
-                
-                # --- AQUI ESTAVA O ERRO (CORRIGIDO) ---
-                # Usamos 'is not None' para evitar ambiguidade do Pandas
-                label_botao = "Atualizar" if dados_edicao is not None else "Cadastrar"
-                
-                if c_btn1.button(f"💾 {label_botao}", type="primary"):
-                    cod_final = codigo
-                    # Se for edição e o campo código estiver vazio (era AUTO-), recupera o original
-                    if dados_edicao is not None and not codigo: 
-                        cod_final = dados_edicao["codigo"]
-
-                    if nome and fabricante:
-                        ok, msg = salvar_produto(cod_final, barras, nome, fabricante, f_img, precos_input, modo_edicao=(dados_edicao is not None))
-                        if ok: 
-                            st.success(msg)
-                            st.session_state["edit_codigo"] = None
-                            st.rerun()
-                        else: 
-                            st.error(msg)
-                    else: 
-                        st.warning("Nome e Fabricante obrigatórios.")
-                
-                # Botão Excluir (Só aparece se estiver editando)
-                if dados_edicao is not None:
-                    if c_btn2.button("🗑️ Excluir"):
-                        excluir_produto(dados_edicao["codigo"])
-                        st.session_state["edit_codigo"] = None
-                        st.success("Excluído!")
-                        st.rerun()
-            else: 
-                st.warning("Crie tabelas primeiro.")
-    # --- COLUNA 1: CRIAR ---
     with c1:
-        new_cat = st.text_input("Nova Tabela")
-        if st.button("Criar"):
-            if new_cat:
-                ok, m = criar_categoria(new_cat)
-                if ok: 
-                    st.success(m)
-                    time.sleep(0.5) # Pausa rápida para ver a mensagem
-                    st.rerun()
-            else:
-                st.warning("Digite um nome para a tabela.")
+        cod_edit = st.session_state["edit_codigo"]
+        dados = df[df["codigo"] == str(cod_edit)].iloc[0] if cod_edit else None
+        
+        st.markdown(f"##### {'✏️ ' + dados['nome'] if dados is not None else '➕ Novo Produto'}")
+        if dados is not None and st.button("Cancelar"): st.session_state["edit_codigo"] = None; st.rerun()
+        
+        with st.container(border=True):
+            fab_idx = EMPRESAS.index(dados["fabricante"]) if dados is not None and dados["fabricante"] in EMPRESAS else 0
+            
+            fabricante = st.selectbox("Fabricante", EMPRESAS, index=fab_idx)
+            nome = st.text_input("Nome", value=dados["nome"] if dados is not None else "")
+            
+            c_a, c_b = st.columns(2)
+            codigo = c_a.text_input("Cód (Opcional)", value="" if dados is not None and str(dados["codigo"]).startswith("AUTO") else (dados["codigo"] if dados is not None else ""))
+            barras = c_b.text_input("EAN", value=dados["barras"] if dados is not None else "")
+            
+            f_img = st.file_uploader("Foto", type=['jpg','png'])
+            
+            if colunas_de_preco:
+                st.write("Preços:")
+                precos = {col: st.number_input(col, value=float(dados[col]) if dados is not None else 0.0) for col in colunas_de_preco}
+                
+                if st.button("💾 Salvar", type="primary", use_container_width=True):
+                    cod_final = codigo if codigo else (dados["codigo"] if dados is not None else None)
+                    if nome:
+                        salvar_produto(cod_final, barras, nome, fabricante, f_img, precos, modo_edicao=(dados is not None))
+                        st.session_state["edit_codigo"] = None; st.rerun()
+                    else: st.warning("Nome obrigatório")
+                
+                if dados is not None and st.button("🗑️ Excluir"):
+                    excluir_produto(dados["codigo"]); st.session_state["edit_codigo"] = None; st.rerun()
 
-    # --- COLUNA 2: APAGAR ---
+# ==============================================================================
+# ABA 3: AJUSTES
+# ==============================================================================
+with tab_config:
+    c1, c2 = st.columns(2)
+    with c1:
+        new = st.text_input("Nova Tabela")
+        if st.button("Criar"):
+             if new: criar_categoria(new); st.rerun()
     with c2:
         if colunas_de_preco:
-            del_cat = st.selectbox("Apagar Tabela:", colunas_de_preco)
-            if st.button("Apagar"):
-                ok, m = excluir_categoria(del_cat)
-                if ok: 
-                    st.warning(m)
-                    time.sleep(0.5)
-                    st.rerun()
-        else:
-            st.info("Nenhuma tabela para apagar.")
+            dele = st.selectbox("Apagar:", colunas_de_preco)
+            if st.button("Apagar"): excluir_categoria(dele); st.rerun()
