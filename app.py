@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import os
 import time
-import io
+import base64
 from datetime import datetime
-from PIL import Image
 from fpdf import FPDF
 from fpdf.fonts import FontFace
 
@@ -16,58 +15,72 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- CSS PARA O PREVIEW NA TELA ---
+# --- CSS VISUAL (PREVIEW NA TELA) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #eaeff2; }
-    .preview-card {
-        background: white; padding: 10px 15px; border-radius: 6px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 8px;
-        display: flex; align-items: center; border-left: 4px solid #2c3e50;
+    .stApp { background-color: #f0f2f6; }
+    
+    /* Card do Produto no Preview */
+    .card-produto {
+        background-color: white;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .preview-img { width: 40px; height: 40px; object-fit: contain; margin-right: 15px; border: 1px solid #eee; border-radius: 4px;}
-    .preview-info { flex-grow: 1; }
-    .preview-title { font-weight: bold; font-size: 14px; color: #333; }
-    .preview-code { font-size: 11px; color: #777; }
-    .preview-price { font-weight: bold; color: #27ae60; font-size: 15px; }
+    .card-img {
+        width: 50px;
+        height: 50px;
+        object-fit: contain;
+        border-radius: 4px;
+        border: 1px solid #eee;
+        margin-right: 15px;
+    }
+    .card-body { flex: 1; }
+    .card-title { font-weight: bold; font-size: 14px; color: #333; margin: 0; }
+    .card-sub { font-size: 11px; color: #666; margin-top: 2px; }
+    .card-price { font-weight: bold; font-size: 16px; color: #2e7d32; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CLASSE PDF (AJUSTADA: LOGO NÃO CORTA MAIS) ---
+# --- 2. CLASSE PDF (LAYOUT RIGIDO) ---
 class PDF(FPDF):
     def header(self):
-        # 1. LOGO (Ajustei X=15 para não cortar)
+        # Logo
         logo_path = None
         for ext in ["png", "jpg"]:
             if os.path.exists(f"static/logo.{ext}"): logo_path = f"static/logo.{ext}"
         
         if logo_path:
-            # x=15 (mais para direita), y=10, w=30 (largura)
-            self.image(logo_path, 15, 10, 30) 
+            # x=10, y=8, w=30
+            self.image(logo_path, 10, 8, 30) 
         
-        # 2. TÍTULO (Alinhado com a nova posição da logo)
-        self.set_y(15) # Alinha verticalmente com o meio da logo
-        self.set_font('helvetica', 'B', 16)
-        self.cell(50) # Empurra para direita (pula a logo)
-        self.cell(0, 10, 'FANTINI REPRESENTAÇÕES', ln=False, align='L')
-        self.ln(25) # Espaço após o cabeçalho
+        # Título
+        self.set_y(15)
+        self.set_font('helvetica', 'B', 15)
+        self.cell(45) # Pula logo
+        self.cell(0, 10, 'FANTINI REPRESENTAÇÕES', ln=False)
+        self.ln(20)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('helvetica', 'I', 8)
-        self.cell(0, 10, f'Pagina {self.page_no()}/{{nb}}', align='C')
+        self.cell(0, 10, f'Pag. {self.page_no()}/{{nb}}', align='C')
 
 def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
+    # A4 Portrait = 210mm largura. Margens default = 10mm esq/dir. Útil = 190mm.
     pdf = PDF(orientation='P', unit='mm', format='A4')
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # --- BLOCO CINZA DE INFORMAÇÕES ---
-    pdf.set_fill_color(245, 245, 245) # Cinza bem clarinho e elegante
-    # x=10, y=35, w=190, h=25
-    pdf.rect(10, 35, 190, 25, 'F') 
+    # --- CABEÇALHO CINZA ---
+    pdf.set_fill_color(240, 240, 240)
+    pdf.rect(10, 30, 190, 25, 'F')
     
-    pdf.set_y(38)
+    pdf.set_y(32)
     pdf.set_x(15)
     pdf.set_font("helvetica", 'B', 10)
     pdf.cell(0, 5, f"TABELA: {tabela_col.upper()}", ln=True)
@@ -78,56 +91,69 @@ def gerar_pdf_final(df_itens, cliente, obs, tabela_col, df_completo):
     
     pdf.set_x(15)
     pdf.cell(0, 5, f"DATA: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(10) # Espaço antes da tabela
+    pdf.ln(10)
     
     # --- TABELA DE PRODUTOS ---
-    # Definição exata das larguras (Soma ~190mm)
+    # Larguras Fixas (Total 190mm)
     # Foto: 15mm | Cód: 25mm | Descrição: 110mm | Preço: 40mm
-    col_widths = (15, 25, 110, 40) 
+    w_foto = 15
+    w_cod = 25
+    w_desc = 110
+    w_preco = 40
+    col_widths = (w_foto, w_cod, w_desc, w_preco)
     
-    with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"), line_height=7) as table:
-        # CABEÇALHO
-        row = table.row()
-        estilo_header = FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80)) # Azul Escuro
-        row.cell("FOTO", style=estilo_header)
-        row.cell("CÓDIGO", style=estilo_header)
-        row.cell("DESCRIÇÃO", style=estilo_header)
-        row.cell("PREÇO", style=estilo_header)
+    # line_height=15 é o segredo para a foto caber verticalmente sem quebrar layout
+    with pdf.table(col_widths=col_widths, text_align=("C", "L", "L", "R"), line_height=15) as table:
         
-        # LINHAS DOS ITENS
+        # Cabeçalho da Tabela
+        row = table.row()
+        header_style = FontFace(emphasis="BOLD", color=255, fill_color=(44, 62, 80))
+        row.cell("FOTO", style=header_style)
+        row.cell("CÓDIGO", style=header_style)
+        row.cell("DESCRIÇÃO", style=header_style)
+        row.cell("PREÇO", style=header_style)
+        
+        # Dados
         pdf.set_font("helvetica", size=9)
         
         for idx, item in df_itens.iterrows():
             row = table.row()
             
             # 1. FOTO
+            img_inserida = False
             try:
+                # Pega nome da imagem do banco original
                 nome_arq = df_completo.loc[df_completo["codigo"] == item["codigo"], "imagem"].values[0]
                 caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+                
                 if os.path.exists(caminho_img):
+                    # img_fill_width=True força a imagem a ter 15mm de largura
+                    # Como definimos a linha com 15mm de altura, fica quadrado perfeito.
                     row.cell(img=caminho_img, img_fill_width=True)
-                else:
-                    row.cell("-")
+                    img_inserida = True
             except:
+                pass
+            
+            if not img_inserida:
                 row.cell("-")
 
             # 2. CÓDIGO
-            cod_str = str(item['codigo']).replace("AUTO-", "")
-            row.cell(cod_str)
+            cod_limpo = str(item['codigo']).replace("AUTO-", "")
+            row.cell(cod_limpo, align="C") # Centralizado verticalmente pelo fpdf
             
             # 3. DESCRIÇÃO
-            ean = item['barras'] if 'barras' in item and str(item['barras']) != "nan" else ""
-            desc_text = f"{item['nome']}\nEAN: {ean}"
-            row.cell(desc_text)
+            ean = item['barras'] if str(item['barras']) != "nan" else ""
+            txt_desc = f"{item['nome']}\nEAN: {ean}"
+            row.cell(txt_desc)
             
-            # 4. PREÇO (Negrito)
-            preco = f"R$ {item[tabela_col]:,.2f}"
-            row.cell(preco, style=FontFace(emphasis="BOLD"))
+            # 4. PREÇO
+            txt_preco = f"R$ {item[tabela_col]:,.2f}"
+            row.cell(txt_preco, style=FontFace(emphasis="BOLD"))
 
-    # --- RODAPÉ OBS ---
+    # --- OBSERVAÇÕES ---
     pdf.ln(5)
     pdf.set_font("helvetica", 'I', 8)
-    pdf.multi_cell(0, 5, f"Observações: {obs if obs else 'Validade conforme estoque.'}")
+    pdf.multi_cell(0, 5, f"Obs: {obs if obs else 'Sujeito a alteração sem aviso prévio.'}")
     
     return pdf.output(dest='S')
 
@@ -165,7 +191,7 @@ with tab_gerador:
         df_show = df.copy()
         if filtro_fabrica != "Todos": df_show = df_show[df_show["fabricante"] == filtro_fabrica]
         
-        st.write("1. Marque os produtos:")
+        st.write("1. Selecione os produtos:")
         df_show.insert(0, "Sel", False)
         
         edited = st.data_editor(
@@ -187,45 +213,49 @@ with tab_gerador:
         selecionados = edited[edited["Sel"] == True]
         
         if not selecionados.empty:
-            st.markdown("### 2. Confira:")
+            st.markdown("### 2. Confira (Preview Simplificado):")
             
-            # PREVIEW (MELHORADO)
+            # PREVIEW HTML LIMPO (RESOLVE O PROBLEMA DOS "2 CÓDIGOS")
             for i, row in selecionados.iterrows():
-                # HTML Seguro para Imagem
-                img_html = ""
+                # Tenta achar imagem para preview
+                img_tag = ""
                 try:
                     nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
-                    path = os.path.join(PASTA_IMAGENS, str(nome_arq))
-                    if os.path.exists(path):
-                        with open(path, "rb") as f:
+                    caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
+                    if os.path.exists(caminho_img):
+                        with open(caminho_img, "rb") as f:
                             b64 = base64.b64encode(f.read()).decode()
-                        img_html = f'<img src="data:image/jpeg;base64,{b64}" class="preview-img">'
+                        img_tag = f'<img src="data:image/jpeg;base64,{b64}" class="card-img">'
                 except: pass
                 
+                # HTML CARD
                 st.markdown(f"""
-                <div class="preview-card">
-                    {img_html}
-                    <div class="preview-info">
-                        <div class="preview-title">{row['nome']}</div>
-                        <div class="preview-code">{row['codigo']}</div>
+                <div class="card-produto">
+                    {img_tag}
+                    <div class="card-body">
+                        <div class="card-title">{row['nome']}</div>
+                        <div class="card-sub">Cód: {row['codigo']}</div>
                     </div>
-                    <div class="preview-price">R$ {row[tabela_ativa]:,.2f}</div>
+                    <div class="card-price">R$ {row[tabela_ativa]:,.2f}</div>
                 </div>
                 """, unsafe_allow_html=True)
-            
+
             st.markdown("---")
+            
+            # GERAR PDF
             try:
                 pdf_bytes = gerar_pdf_final(selecionados, cliente, obs, tabela_ativa, df)
+                
                 st.download_button(
-                    label="📥 BAIXAR PDF (FINAL)",
+                    label="📥 BAIXAR PDF CORRIGIDO",
                     data=bytes(pdf_bytes),
-                    file_name=f"Tabela_{cliente if cliente else 'Geral'}.pdf",
+                    file_name=f"Pedido_{cliente}.pdf",
                     mime="application/pdf",
                     type="primary",
                     use_container_width=True
                 )
             except Exception as e:
-                st.error(f"Erro: {e}")
+                st.error(f"Erro ao gerar PDF: {e}")
 
 # --- ABA 2: CADASTRO ---
 with tab_cadastro:
