@@ -5,7 +5,7 @@ import time
 import base64
 import io
 from datetime import datetime
-from PIL import Image # Biblioteca para tratar imagens
+from PIL import Image # Mantemos para a logo do cabeçalho
 
 # --- 1. CONFIGURAÇÃO GERAL ---
 st.set_page_config(
@@ -20,34 +20,20 @@ ARQUIVO_DB = "banco_produtos_dinamico.csv"
 COLUNAS_FIXAS = ["codigo", "barras", "nome", "imagem", "fabricante"]
 EMPRESAS = ["Vinagre Belmont", "Serve Sempre"]
 
-# --- FUNÇÃO DE IMAGEM OTIMIZADA (O SEGREDO DA CORREÇÃO) ---
-def get_img_as_base64(file_path):
-    """
-    Lê a imagem, REDIMENSIONA para ficar leve e converte para código.
-    Isso evita o bug do 'código gigante' na tela.
-    """
+# --- FUNÇÃO PARA A LOGO DO CABEÇALHO ---
+def get_img_as_base64_resized(file_path):
+    """Lê e redimensiona apenas a logo principal para o cabeçalho."""
     if os.path.exists(file_path):
         try:
-            # Abre a imagem usando PIL
             img = Image.open(file_path)
-            
-            # Converte para RGB se for imagem com transparência (evita erros em PNGs quebrados)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            
-            # REDIMENSIONA para no máximo 150x150 pixels (Thumbnail)
-            # Isso faz o código base64 ficar pequeno e não travar o navegador
-            img.thumbnail((150, 150))
-            
-            # Salva num buffer na memória (não no disco)
+            if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+            # Redimensiona para logo pequena
+            img.thumbnail((200, 100)) 
             buffered = io.BytesIO()
             img.save(buffered, format="JPEG", quality=80)
-            
-            # Converte para Base64
             encoded = base64.b64encode(buffered.getvalue()).decode()
             return f"data:image/jpeg;base64,{encoded}"
-        except Exception as e:
-            print(f"Erro ao processar imagem {file_path}: {e}")
+        except Exception:
             return None
     return None
 
@@ -80,7 +66,7 @@ st.markdown("""
     .titulo-tabela { font-size: 22px; font-weight: bold; color: #2c3e50; margin: 0; text-transform: uppercase; }
     .subtitulo-tabela { font-size: 14px; color: #555; margin-top: 5px; }
 
-    /* --- TABELA --- */
+    /* --- TABELA LIMPA (SEM FOTOS) --- */
     .tabela-produtos {
         width: 100%;
         border-collapse: collapse;
@@ -89,7 +75,7 @@ st.markdown("""
     .tabela-produtos th {
         background-color: #34495e !important;
         color: white !important;
-        padding: 10px;
+        padding: 12px 10px; /* Mais espaçamento */
         text-align: left;
         font-size: 12px;
         text-transform: uppercase;
@@ -97,7 +83,7 @@ st.markdown("""
         print-color-adjust: exact;
     }
     .tabela-produtos td {
-        padding: 8px;
+        padding: 10px;
         border-bottom: 1px solid #eee;
         vertical-align: middle;
         color: #333;
@@ -109,15 +95,11 @@ st.markdown("""
         print-color-adjust: exact;
     }
 
-    /* --- MINIATURAS --- */
-    .img-produto-tabela {
-        width: 50px; height: 50px; object-fit: contain;
-        background-color: #fff; padding: 2px; border: 1px solid #eee;
-    }
-    .prod-nome { font-weight: bold; font-size: 13px; }
-    .prod-ean { font-size: 10px; color: #777; margin-top: 2px;}
+    /* --- DADOS --- */
+    .prod-nome { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+    .prod-ean { font-size: 11px; color: #777; }
     .prod-cod { font-weight: bold; color: #555; font-size: 12px; }
-    .prod-preco { font-weight: bold; font-size: 15px; color: #2c3e50; }
+    .prod-preco { font-weight: bold; font-size: 16px; color: #2c3e50; }
 
     /* --- IMPRESSÃO --- */
     @media print {
@@ -217,7 +199,7 @@ with st.sidebar:
 # --- ABAS ---
 tab_gerador, tab_cadastro, tab_config = st.tabs(["📄 Gerador PDF", "📝 Cadastro Produtos", "⚙️ Ajustes"])
 
-# ABA 1: GERADOR
+# ABA 1: GERADOR (AGORA SEM FOTOS NA TABELA)
 with tab_gerador:
     df_filtrado = df.copy()
     if filtro_fabrica != "Todos":
@@ -253,46 +235,33 @@ with tab_gerador:
         itens_marcados = df_edicao[df_edicao["Incluir"] == True]
         
         if not itens_marcados.empty:
-            # 1. Logo Fantini Otimizada
+            # 1. Logo Fantini do Cabeçalho (Mantida)
             img_logo_b64 = ""
             if path_logo_fantini:
-                res = get_img_as_base64(path_logo_fantini)
+                res = get_img_as_base64_resized(path_logo_fantini)
                 if res: img_logo_b64 = res
 
-            # 2. Linhas da Tabela
+            # 2. Linhas da Tabela (SEM FOTOS AGORA)
             html_rows = ""
             for idx, row in itens_marcados.iterrows():
-                # Busca e OTIMIZA a imagem
-                img_tag = "<span style='color:#ccc; font-size:20px; display:block; text-align:center;'>🖼️</span>"
-                try:
-                    nome_arq = df.loc[df["codigo"] == row["codigo"], "imagem"].values[0]
-                    caminho_img = os.path.join(PASTA_IMAGENS, str(nome_arq))
-                    
-                    b64_img = get_img_as_base64(caminho_img)
-                    if b64_img:
-                        img_tag = f"<img src='{b64_img}' class='img-produto-tabela'>"
-                except Exception:
-                    pass 
-                
-                cod_show = row['codigo'] if not str(row['codigo']).startswith("AUTO-") else ""
+                cod_show = row['codigo'] if not str(row['codigo']).startswith("AUTO-") else "---"
                 ean_show = f"EAN: {row['barras']}" if row['barras'] and str(row['barras']) != "nan" else ""
                 preco = row[tabela_selecionada]
 
                 html_rows += f"""
                 <tr>
-                    <td style='text-align:center;'>{img_tag}</td>
-                    <td class='prod-cod'>{cod_show}</td>
+                    <td class='prod-cod' style='padding-left:15px;'>{cod_show}</td>
                     <td>
                         <div class='prod-nome'>{row['nome']}</div>
                         <div class='prod-ean'>{ean_show}</div>
                     </td>
-                    <td style='text-align:right;' class='prod-preco'>R$ {preco:,.2f}</td>
+                    <td style='text-align:right; padding-right:15px;' class='prod-preco'>R$ {preco:,.2f}</td>
                 </tr>
                 """
 
             data_hoje = datetime.now().strftime("%d/%m/%Y")
             titulo_extra = f" - {filtro_fabrica}" if filtro_fabrica != "Todos" else ""
-            logo_html = f'<img src="{img_logo_b64}" style="max-height:60px;">' if img_logo_b64 else '<h2>FANTINI</h2>'
+            logo_html = f'<img src="{img_logo_b64}" style="max-height:70px;">' if img_logo_b64 else '<h2>FANTINI</h2>'
 
             html_final = f"""
             <div class="folha-a4-preview">
@@ -312,10 +281,9 @@ with tab_gerador:
                 <table class="tabela-produtos">
                     <thead>
                         <tr>
-                            <th width="60px" style="text-align:center;">Foto</th>
-                            <th width="80px">Código</th>
+                            <th width="100px" style="padding-left:15px;">Código</th>
                             <th>Produto / EAN</th>
-                            <th width="120px" style="text-align:right;">Valor Unit.</th>
+                            <th width="140px" style="text-align:right; padding-right:15px;">Valor Unit.</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -399,35 +367,22 @@ with tab_cadastro:
                     excluir_produto(dados["codigo"]); st.session_state["edit_codigo"] = None; st.success("Excluído!"); time.sleep(1); st.rerun()
             else: st.warning("Cadastre tabelas na aba 'Ajustes' primeiro.")
 
-# ABA 3: AJUSTES
+# ABA 3: AJUSTES (CORRIGIDA)
 with tab_config:
     c1, c2 = st.columns(2)
-    
-    # --- COLUNA CRIAR ---
     with c1:
         st.markdown("##### Criar Tabela")
-        new = st.text_input("Nome (Ex: Atacado)")
-        if st.button("Criar Tabela", use_container_width=True):
+        new = st.text_input("Nome")
+        if st.button("Criar", use_container_width=True):
              if new:
                  ok, m = criar_categoria(new)
-                 if ok: 
-                     st.success(m)
-                     time.sleep(0.5)
-                     st.rerun()
-             else:
-                 st.warning("Digite um nome.")
-
-    # --- COLUNA APAGAR (ONDE DEU O ERRO) ---
+                 if ok: st.success(m); time.sleep(0.5); st.rerun()
+             else: st.warning("Digite um nome.")
     with c2:
         st.markdown("##### Apagar Tabela")
         if colunas_de_preco:
-            dele = st.selectbox("Selecione para apagar:", colunas_de_preco)
-            if st.button("Apagar Tabela", use_container_width=True):
+            dele = st.selectbox("Selecione:", colunas_de_preco)
+            if st.button("Apagar", use_container_width=True):
                 ok, m = excluir_categoria(dele)
-                # A CORREÇÃO ESTÁ AQUI: O 'if ok' agora fica DENTRO do botão
-                if ok: 
-                    st.warning(m)
-                    time.sleep(0.5)
-                    st.rerun()
-        else:
-            st.info("Nenhuma tabela criada.")
+                if ok: st.warning(m); time.sleep(0.5); st.rerun()
+        else: st.info("Nenhuma tabela.")
